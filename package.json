@@ -1,0 +1,32 @@
+{
+  "name": "@saber2pr/ai-agent",
+  "version": "0.0.1",
+  "description": "AI Assistant CLI.",
+  "author": "saber2pr",
+  "license": "ISC",
+  "files": [
+    "lib"
+  ],
+  "bin": {
+    "sagent": "./lib/index.js"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "main": "./lib/index.js",
+  "scripts": {
+    "test": "node lib/index",
+    "start": "tsc --watch",
+    "prepublishOnly": "tsc"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.3",
+    "openai": "^6.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^16.3.3",
+    "prettier": "^2.4.1",
+    "typescript": "^5.9.3"
+  }
+}
