@@ -1,12 +1,13 @@
+import OpenAI from "openai";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import OpenAI from "openai";
 import fs from "fs";
 import path from "path";
 import os from "os";
 import * as readline from "readline";
+import { PromptEngine } from "@saber2pr/ts-context-mcp"; // 引入我们的核心引擎
 
-// --- Type Definitions ---
+// --- 配置定义 ---
 interface McpConfig {
   mcpServers: {
     [key: string]: {
@@ -30,95 +31,150 @@ interface ToolInfo {
     description?: string;
     parameters: any;
   };
-  _originalName: string;
-  _client: Client;
+  _handler?: (args: any) => Promise<any>; // 内置工具处理器
+  _client?: Client; // 外部 MCP 客户端
+  _originalName?: string;
 }
 
 const CONFIG_FILE = path.join(os.homedir(), ".saber2pr-agent.json");
 
-// --- Core Class ---
 export default class McpAgent {
   private openai!: OpenAI;
   private modelName: string = "";
   private clients: Client[] = [];
   private allTools: ToolInfo[] = [];
   private messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
+  private engine: PromptEngine;
 
   constructor() {
+    // 默认以当前工作目录为分析目标
+    this.engine = new PromptEngine(process.cwd());
+
     this.messages.push({
       role: "system",
-      content: "You are a powerful local assistant. You can access local tools provided by the user via the MCP protocol. Please answer questions by combining tool outputs and context.",
+      content: `你是一个专业的 AI 代码架构师。
+你可以访问本地文件系统并利用 AST (抽象语法树) 技术分析代码。
+你的核心目标是提供准确的代码结构、依赖关系和逻辑分析。
+请优先使用 read_skeleton 查看结构，只有在必要时才使用 read_full_code 或 get_method_body。`,
     });
+
+    // 初始化内置工具
+    this.registerBuiltinTools();
   }
 
   /**
-   * 1. API Configuration Management
-   * Checks for existing config or prompts user for input.
+   * 核心功能：内置代码分析工具
+   * 这里的逻辑直接调用 PromptEngine，不走网络请求，效率极高
    */
+  private registerBuiltinTools() {
+    const builtinTools: ToolInfo[] = [
+      {
+        type: "function",
+        function: {
+          name: "get_repo_map",
+          description: "获取项目全局文件结构及导出清单，用于快速定位代码",
+          parameters: { type: "object", properties: {} },
+        },
+        _handler: async () => {
+          this.engine.refresh();
+          return this.engine.getRepoMap();
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "analyze_deps",
+          description: "分析指定文件的依赖关系，支持 tsconfig 路径别名解析",
+          parameters: {
+            type: "object",
+            properties: {
+              filePath: { type: "string", description: "文件相对路径" },
+            },
+            required: ["filePath"],
+          },
+        },
+        _handler: async ({ filePath }) => this.engine.getDeps(filePath),
+      },
+      {
+        type: "function",
+        function: {
+          name: "read_skeleton",
+          description:
+            "提取文件的结构定义（接口、类、方法签名），忽略具体实现以节省 Token",
+          parameters: {
+            type: "object",
+            properties: {
+              filePath: { type: "string", description: "文件相对路径" },
+            },
+            required: ["filePath"],
+          },
+        },
+        _handler: async ({ filePath }) => this.engine.getSkeleton(filePath),
+      },
+      {
+        type: "function",
+        function: {
+          name: "get_method_body",
+          description: "获取指定文件内某个方法或函数的完整实现代码",
+          parameters: {
+            type: "object",
+            properties: {
+              filePath: { type: "string", description: "文件路径" },
+              methodName: { type: "string", description: "方法名或函数名" },
+            },
+            required: ["filePath", "methodName"],
+          },
+        },
+        _handler: async ({ filePath, methodName }) =>
+          this.engine.getMethodImplementation(filePath, methodName),
+      },
+    ];
+
+    this.allTools.push(...builtinTools);
+  }
+
+  // --- 初始化与环境准备 (API Config & MCP Servers) ---
+
   private async ensureApiConfig(): Promise<ApiConfig> {
     if (fs.existsSync(CONFIG_FILE)) {
-      try {
-        const config: ApiConfig = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf-8"));
-        if (config.baseURL && config.apiKey && config.model) {
-          return config;
-        }
-      } catch (e) {
-        console.error(`[Error] Failed to read ${CONFIG_FILE}, re-initializing...`);
-      }
+      return JSON.parse(fs.readFileSync(CONFIG_FILE, "utf-8"));
     }
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    const question = (q: string) =>
+      new Promise<string>((res) => rl.question(q, res));
 
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    const question = (query: string) => new Promise<string>((resolve) => rl.question(query, resolve));
-
-    console.log("\n🔑 API Configuration not found. Please provide the following details:");
-    const baseURL = await question("? API Base URL: ");
-    const apiKey = await question("? API Key: ");
-    const model = await question("? Model Name: ");
-
-    if (!baseURL || !apiKey || !model) {
-      console.error("❌ Error: All fields (Base URL, API Key, Model Name) are required!");
-      process.exit(1);
-    }
-
-    const config: ApiConfig = { baseURL, apiKey, model };
+    console.log("\n🔑 配置 API 凭据:");
+    const config = {
+      baseURL: await question(
+        "? API Base URL (如 https://api.openai.com/v1): ",
+      ),
+      apiKey: await question("? API Key: "),
+      model: await question("? Model Name (如 gpt-4o): "),
+    };
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
-    console.log(`✅ Configuration saved to ${CONFIG_FILE}\n`);
     rl.close();
     return config;
   }
 
-  /**
-   * 2. Load MCP server configs from common IDE paths
-   */
   private loadMcpConfigs(): McpConfig {
-    const combinedConfig: McpConfig = { mcpServers: {} };
-    const configPaths = [
+    const combined: McpConfig = { mcpServers: {} };
+    const paths = [
       path.join(os.homedir(), ".cursor", "mcp.json"),
       path.join(os.homedir(), ".vscode", "mcp.json"),
     ];
-
-    for (const p of configPaths) {
+    paths.forEach((p) => {
       if (fs.existsSync(p)) {
-        try {
-          const content = JSON.parse(fs.readFileSync(p, "utf-8"));
-          if (content.mcpServers) {
-            combinedConfig.mcpServers = { ...combinedConfig.mcpServers, ...content.mcpServers };
-            console.log(`[MCP] Config loaded from: ${p}`);
-          }
-        } catch (e) {
-          console.error(`[Error] Failed to parse MCP config ${p}:`, e);
-        }
+        const content = JSON.parse(fs.readFileSync(p, "utf-8"));
+        Object.assign(combined.mcpServers, content.mcpServers);
       }
-    }
-    return combinedConfig;
+    });
+    return combined;
   }
 
-  /**
-   * 3. Initialization
-   * Validates API credentials and connects to MCP servers.
-   */
   async init() {
-    // A. Setup & Validate OpenAI
     const apiConfig = await this.ensureApiConfig();
     this.openai = new OpenAI({
       baseURL: apiConfig.baseURL,
@@ -126,152 +182,115 @@ export default class McpAgent {
     });
     this.modelName = apiConfig.model;
 
-    console.log("🔍 Validating API configuration...");
-    try {
-      // Perform a lightweight check to verify URL and Key
-      await this.openai.models.list();
-      console.log("✅ API validation successful.");
-    } catch (e: any) {
-      console.error("\n❌ API Connection Failed!");
-      console.error(`Reason: ${e.message}`);
-      console.log(`\nSuggestion: If you made a mistake, please delete or edit: ${CONFIG_FILE}`);
-      process.exit(1);
-    }
-
-    // B. Setup MCP Clients
+    // 链接外部 MCP Server (如 Google Search, Filesystem 等)
     const mcpConfig = this.loadMcpConfigs();
-    const serverEntries = Object.entries(mcpConfig.mcpServers);
-
-    if (serverEntries.length === 0) {
-      console.warn("⚠️ No MCP server configurations found.");
-    }
-
-    for (const [name, server] of serverEntries) {
+    for (const [name, server] of Object.entries(mcpConfig.mcpServers)) {
       try {
         const transport = new StdioClientTransport({
           command: server.command,
           args: server.args || [],
-          env: { ...process.env, ...(server.env || {}) } as any,
+          env: { ...process.env, ...server.env } as any,
         });
-
-        const client = new Client({ name, version: "1.0.0" }, { capabilities: {} });
+        const client = new Client(
+          { name, version: "1.0.0" },
+          { capabilities: {} },
+        );
         await client.connect(transport);
         const { tools } = await client.listTools();
 
-        const formatted = tools.map((t) => ({
-          type: "function" as const,
-          function: {
-            name: `${name}__${t.name}`,
-            description: t.description,
-            parameters: t.inputSchema,
-          },
-          _originalName: t.name,
-          _client: client,
-        }));
-
-        this.allTools.push(...formatted);
-        this.clients.push(client);
-        console.log(`✅ [${name}] Connected, loaded ${tools.length} tools`);
+        this.allTools.push(
+          ...tools.map((t) => ({
+            type: "function" as const,
+            function: {
+              name: `${name}__${t.name}`,
+              description: t.description,
+              parameters: t.inputSchema,
+            },
+            _originalName: t.name,
+            _client: client,
+          })),
+        );
+        console.log(`✅ [${name}] 加载成功`);
       } catch (e) {
-        console.error(`❌ [${name}] Failed to start:`, e);
+        console.error(`❌ [${name}] 启动失败`);
       }
     }
   }
 
   /**
-   * 4. Core Chat Logic
-   * Handles user input and recursive tool calls.
+   * 核心交互循环 (Reasoning Loop)
+   * 允许 AI 连续调用工具来解决复杂代码问题
    */
   private async processChat(userInput: string) {
     this.messages.push({ role: "user", content: userInput });
 
-    let isThinking = true;
-    while (isThinking) {
-      const apiTools = this.allTools.map(({ _originalName, _client, ...rest }) => rest);
-
+    while (true) {
       const response = await this.openai.chat.completions.create({
         model: this.modelName,
         messages: this.messages,
-        tools: apiTools.length > 0 ? (apiTools as any) : undefined,
+        tools: this.allTools.map(
+          ({ _handler, _client, _originalName, ...rest }) => rest,
+        ) as any,
         tool_choice: "auto",
       });
 
       const message = response.choices[0].message;
+      this.messages.push(message);
 
-      // If no more tool calls, exit loop and show final response
-      if (!message.tool_calls || message.tool_calls.length === 0) {
-        this.messages.push(message);
+      if (!message.tool_calls) {
         console.log(`\n🤖 Agent: ${message.content}`);
-        isThinking = false;
         break;
       }
 
-      // Handle tool calls requested by the model
-      this.messages.push(message);
-      console.log(`\n⚙️  Model requested ${message.tool_calls.length} tool calls...`);
+      console.log(`\n⚙️ 正在思考并执行 ${message.tool_calls.length} 个操作...`);
 
-      for (const toolCall of message.tool_calls) {
-        const toolInfo = this.allTools.find((t) => t.function.name === toolCall.function.name);
+      for (const call of message.tool_calls) {
+        const tool = this.allTools.find(
+          (t) => t.function.name === call.function.name,
+        );
+        let result: any;
 
-        if (toolInfo) {
-          const args = JSON.parse(toolCall.function.arguments);
-          console.log(`   - Executing: ${toolInfo.function.name}`);
-
-          try {
-            const result = await toolInfo._client.callTool({
-              name: toolInfo._originalName,
-              arguments: args,
-            });
-
-            this.messages.push({
-              role: "tool",
-              tool_call_id: toolCall.id,
-              content: JSON.stringify(result.content),
-            });
-          } catch (error: any) {
-            console.error(`   - Execution failed: ${error.message}`);
-            this.messages.push({
-              role: "tool",
-              tool_call_id: toolCall.id,
-              content: `Error: ${error.message}`,
-            });
-          }
+        if (tool?._handler) {
+          // 执行内置 PromptEngine 工具
+          result = await tool._handler(JSON.parse(call.function.arguments));
+        } else if (tool?._client && tool._originalName) {
+          // 执行外部 MCP 工具
+          const mcpRes = await tool._client.callTool({
+            name: tool._originalName,
+            arguments: JSON.parse(call.function.arguments),
+          });
+          result = mcpRes.content;
         }
+
+        this.messages.push({
+          role: "tool",
+          tool_call_id: call.id,
+          content: typeof result === "string" ? result : JSON.stringify(result),
+        });
+        console.log(`   - 完成: ${call.function.name}`);
       }
     }
   }
 
-  /**
-   * 5. Start the Interactive Shell
-   */
   async start() {
     await this.init();
-
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
     });
-
-    console.log(`\n🚀 Agent Started (Model: ${this.modelName})! Type 'exit' to quit.`);
+    console.log(`\n🚀 代码助手已启动 (目标目录: ${this.engine.getRootDir()})`);
 
     const chatLoop = () => {
-      rl.question("\n👤 You: ", async (input) => {
-        if (input.toLowerCase() === "exit") {
-          console.log("Goodbye!");
-          rl.close();
-          process.exit(0);
-        }
-
+      rl.question("\n👤 你: ", async (input) => {
+        if (input.toLowerCase() === "exit") process.exit(0);
         try {
           await this.processChat(input);
         } catch (err: any) {
-          console.error("\n❌ System Error during chat:", err.message);
-          console.log("Try checking your API configuration or network connection.");
+          console.error("\n❌ 系统错误:", err.message);
         }
         chatLoop();
       });
     };
-
     chatLoop();
   }
 }
