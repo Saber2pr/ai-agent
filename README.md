@@ -1,73 +1,93 @@
 # @saber2pr/ai-agent
 
-A lightweight local AI assistant based on the **MCP (Model Context Protocol)**. It automatically loads your local tools (from Cursor or VSCode MCP configurations) and provides an intelligent orchestration layer via OpenAI-compatible APIs.
+A lightweight local AI assistant and automation audit engine based on the **MCP (Model Context Protocol)**. It integrates a powerful built-in AST engine with external MCP tool discovery to provide deep source code analysis and automated workflows.
 
 ## ✨ Features
 
-* **Native MCP Support**: Seamlessly connects to local MCP servers using Stdio transport.
-* **Auto-Discovery**: Automatically reads tool definitions from `~/.cursor/mcp.json` and `~/.vscode/mcp.json`.
-* **Persistent Configuration**: On the first run, it guides you through setting up your API endpoint, key, and model name, saving them to `~/.saber2pr-agent.json`.
-* **Namespace Management**: Prevents tool name conflicts by automatically prefixing functions (e.g., `serverName__toolName`).
-* **Interactive CLI**: Built-in REPL for multi-turn conversations and complex tool-chaining.
+* **Dual-Layer Tool Architecture**:
+* **Built-in AST Engine**: High-performance analysis via `get_repo_map`, `read_skeleton`, and dependency mapping without needing external services.
+* **External MCP Support**: Automatically connects to local MCP servers defined in `~/.cursor/mcp.json` or `~/.vscode/mcp.json`.
 
-## 📦 Installation
 
-Install globally via npm:
+* **Extensible Logic**: Inject custom business rules via `extraSystemPrompt` and define specialized handlers through `customTools` (e.g., for automated Merge Request reviews).
+* **Intelligent Context Management**:
+* **Token Guard**: Automatically intercepts large file reads to prevent context overflow.
+* **Dynamic Pruning**: Automatically prunes older message history when `maxTokens` is reached, ensuring the System Prompt and latest context remain intact.
 
-```bash
-npm install -g @saber2pr/ai-agent
-```
 
-Or run directly using `npx`:
-
-```bash
-npx @saber2pr/ai-agent
-```
+* **Programmatic API**: Built-in `agent.chat()` method for seamless integration into CI/CD pipelines or automated scripts.
 
 ## 🚀 Quick Start
 
-### 1. Launch the Agent
+### 1. Installation
 
-Start the assistant by running the binary command:
+```bash
+npm install -g @saber2pr/ai-agent
+
+```
+
+### 2. Interactive CLI Mode
+
+Launch the assistant to configure API credentials and start chatting with your local tools:
 
 ```bash
 sagent
+
 ```
 
-### 2. Initialize Configuration
+### 3. Programmatic Integration (Automated Audit)
 
-If it's your first time running the agent, you will be prompted to provide:
+Use the agent as a library to perform structured code reviews:
 
-* **API Base URL**: e.g., `https://api.openai.com/v1` or your custom proxy.
-* **API Key**: Your model provider's API key.
-* **Model Name**: e.g., `gpt-4o`, `claude-3-5-sonnet`, or `deepseek-v3`.
+```typescript
+import McpAgent from "@saber2pr/ai-agent";
 
-Your settings will be stored in `~/.saber2pr-agent.json` for future use.
+async function runReview() {
+  const agent = new McpAgent({
+    targetDir: "./my-project",
+    maxTokens: 50000, 
+    extraSystemPrompt: "You are a Senior Architect. Identify any hardcoded color values.",
+    tools: [{
+      name: "generate_review",
+      description: "Submit a structured review report",
+      parameters: { /* Your IAiViolation schema */ },
+      handler: async (args) => { console.log("Reported Issues:", args); }
+    }]
+  });
 
-### 3. Connect Local Tools
+  // Trigger one-shot analysis
+  await agent.chat("Analyze the src directory and report all hardcoded colors.");
+}
 
-The agent automatically scans the following paths for MCP configurations:
+```
 
-* `~/.cursor/mcp.json`
-* `~/.vscode/mcp.json`
+## 🛠️ Core Toolkit
 
-Ensure your MCP servers are configured in these files, and `sagent` will gain the ability to call them immediately.
+| Tool              | Description                                                                                                          |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `analyze_deps`    | Analyzes file dependencies with support for `tsconfig` path aliases.                                                 |
+| `get_method_body` | Precisely extracts the implementation of a specific function or method.                                              |
+| `get_repo_map`    | **Mandatory First Step**. Retrieves global file structure and exports to establish a project mental map.             |
+| `read_full_code`  | Reads full source code with line numbers. Includes built-in token overflow protection.                               |
+| `read_skeleton`   | Extracts interfaces, classes, and function signatures. **Token efficient**; highly recommended for initial analysis. |
 
-## 🛠️ Usage
+## ⚙️ Configuration
 
-| Command                  | Description                                     |
-| ------------------------ | ----------------------------------------------- |
-| `~/.saber2pr-agent.json` | Manually edit this file to update API settings. |
-| `exit`                   | Type during a chat to quit the program.         |
-| `sagent`                 | Enter interactive chat mode.                    |
+Pass the following options when instantiating `McpAgent`:
 
-## 🏗️ Tech Stack
+```typescript
+interface AgentOptions {
+  targetDir?: string;        // Project root directory (default: process.cwd())
+  tools?: CustomTool[];      // Custom tool extensions
+  extraSystemPrompt?: any;   // Business rules or persona definitions
+  maxTokens?: number;        // Context token limit (default: 100,000)
+}
 
-Built with:
+```
 
-* [@modelcontextprotocol/sdk](https://www.google.com/search?q=https://github.com/modelcontextprotocol/typescript-sdk) - Official MCP SDK.
-* [openai](https://www.google.com/search?q=https://github.com/openai/openai-node) - Client for API interactions.
-* [TypeScript](https://www.google.com/search?q=https://www.typescriptlang.org/) - Ensuring type safety and robustness.
+## 🏗️ Technical Implementation
+
+The agent uses a "Windowing" strategy for context management. When `maxTokens` is exceeded, it removes older messages starting from index 1, ensuring that the critical instructions in the System Prompt (index 0) are never lost.
 
 ## 📄 License
 
