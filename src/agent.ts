@@ -37,6 +37,22 @@ interface ToolInfo {
   _originalName?: string;
 }
 
+// 定义工具扩展接口
+export interface CustomTool {
+  name: string;
+  description: string;
+  parameters: any;
+  handler: (args: any) => Promise<any>;
+}
+
+export interface AgentOptions {
+  targetDir?: string;
+  /** 自定义工具扩展 */
+  tools?: any[];
+  /** 注入到 System Prompt 中的额外指令/规则/上下文 */
+  extraSystemPrompt?: any;
+}
+
 const CONFIG_FILE = path.join(os.homedir(), ".saber2pr-agent.json");
 
 export default class McpAgent {
@@ -47,22 +63,35 @@ export default class McpAgent {
   private messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
   private engine: PromptEngine;
   private encoder = getEncoding("cl100k_base");
+  private extraTools: CustomTool[] = [];
 
-  constructor() {
-    // 默认以当前工作目录为分析目标
-    this.engine = new PromptEngine(process.cwd());
+  constructor(options?: AgentOptions) {
+    this.engine = new PromptEngine(options?.targetDir || process.cwd());
+    this.extraTools = options?.tools || []; // 接收外部传入的工具
 
-    this.messages.push({
-      role: "system",
-      content: `你是一个专业的 AI 代码架构师。
+    let baseSystemPrompt = `你是一个专业的 AI 代码架构师。
 你可以访问本地文件系统并利用 AST (抽象语法树) 技术分析代码。
 你的核心目标是提供准确的代码结构、依赖关系和逻辑分析。
 请先使用 get_repo_map 查看项目整体代码结构。
-请优先使用 read_skeleton 查看结构，只有在必要时才使用 read_full_code 或 get_method_body。`,
+请优先使用 read_skeleton 查看结构，只有在必要时才使用 read_full_code 或 get_method_body。`
+
+    // 2. 拼接额外指令
+    if (options?.extraSystemPrompt) {
+      const extra = typeof options.extraSystemPrompt === 'string'
+        ? options.extraSystemPrompt
+        : JSON.stringify(options.extraSystemPrompt, null, 2);
+
+      baseSystemPrompt += `\n\n[额外执行指令]:\n${extra}`;
+    }
+
+    this.messages.push({
+      role: "system",
+      content: baseSystemPrompt,
     });
 
     // 初始化内置工具
     this.registerBuiltinTools();
+    this.injectCustomTools(); // 注入外部工具
   }
 
   /**
@@ -109,6 +138,20 @@ export default class McpAgent {
     }
 
     return total;
+  }
+
+  private injectCustomTools() {
+    for (const tool of this.extraTools) {
+      this.allTools.push({
+        type: "function",
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters,
+        },
+        _handler: tool.handler,
+      });
+    }
   }
 
   /**
@@ -228,7 +271,11 @@ export default class McpAgent {
               return `Error: 文件不存在: ${filePath}`;
             }
 
-            return fs.readFileSync(fullPath, "utf-8");
+            const content = fs.readFileSync(fullPath, "utf-8");
+            // 加上行号，AI 就能在 generate_review 里给出准确的 line 参数
+            return content.split('\n')
+              .map((line, i) => `${i + 1} | ${line}`)
+              .join('\n');
           } catch (err: any) {
             return `Error: 读取文件失败: ${err.message}`;
           }
@@ -415,8 +462,31 @@ export default class McpAgent {
     };
   }
 
+  /**
+   * 编程式对话入口
+   * @param input 用户指令
+   * @returns AI 的最终答复内容
+   */
+  async chat(input: string): Promise<string> {
+    if (!this.openai) {
+      await this.init();
+    }
+
+    // 调用现有的处理逻辑
+    // 假设你的 processChat 已经处理了所有的 tool_calls 循环
+    await this.processChat(input);
+
+    // 返回消息列表中的最后一条 AI 回复
+    const lastMsg = this.messages[this.messages.length - 1];
+    return lastMsg.role === 'assistant' ? (lastMsg.content as string) : '';
+  }
+
+  // 修改原来的 start 方法，使其内部也调用 chat
   async start() {
-    await this.init();
+    if (!this.openai) {
+      await this.init();
+    }
+
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
@@ -427,7 +497,8 @@ export default class McpAgent {
       rl.question("\n👤 你: ", async (input) => {
         if (input.toLowerCase() === "exit") process.exit(0);
         try {
-          await this.processChat(input);
+          // 这里统一调用 chat 或核心逻辑
+          await this.chat(input);
         } catch (err: any) {
           console.error("\n❌ 系统错误:", err.message);
         }

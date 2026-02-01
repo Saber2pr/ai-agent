@@ -8,7 +8,7 @@
     "lib"
   ],
   "bin": {
-    "sagent": "./lib/index.js"
+    "sagent": "./lib/cli.js"
   },
   "publishConfig": {
     "access": "public",
