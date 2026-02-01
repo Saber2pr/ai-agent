@@ -52,6 +52,7 @@ export interface AgentOptions {
   /** 注入到 System Prompt 中的额外指令/规则/上下文 */
   extraSystemPrompt?: any;
   maxTokens?: number
+  apiConfig?: ApiConfig
 }
 
 const CONFIG_FILE = path.join(os.homedir(), ".saber2pr-agent.json");
@@ -66,11 +67,13 @@ export default class McpAgent {
   private encoder = getEncoding("cl100k_base");
   private extraTools: CustomTool[] = [];
   private maxTokens: number;
+  private apiConfig: ApiConfig
 
   constructor(options?: AgentOptions) {
     this.engine = new PromptEngine(options?.targetDir || process.cwd());
     this.extraTools = options?.tools || []; // 接收外部传入的工具
     this.maxTokens = options?.maxTokens || 100000; // 默认 100k
+    this.apiConfig = options?.apiConfig
 
     let baseSystemPrompt = `你是一个专业的 AI 代码架构师，具备深度的源码分析与工程化处理能力。
 
@@ -316,6 +319,8 @@ export default class McpAgent {
   // --- 初始化与环境准备 (API Config & MCP Servers) ---
 
   private async ensureApiConfig(): Promise<ApiConfig> {
+    if (this.apiConfig) return this.apiConfig
+
     if (fs.existsSync(CONFIG_FILE)) {
       return JSON.parse(fs.readFileSync(CONFIG_FILE, "utf-8"));
     }

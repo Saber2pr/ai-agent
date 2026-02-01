@@ -1,94 +1,141 @@
-# @saber2pr/ai-agent
+# 🚀 Saber2pr AI Agent
 
-A lightweight local AI assistant and automation audit engine based on the **MCP (Model Context Protocol)**. It integrates a powerful built-in AST engine with external MCP tool discovery to provide deep source code analysis and automated workflows.
+A high-performance AI Agent toolkit designed for automated code auditing, repository mapping, and architectural analysis. It supports both a lightweight **Standard Edition** for direct API interaction and a powerful **LangChain Edition** for complex multi-step reasoning and private LLM integration.
 
-## ✨ Features
+## ✨ Core Features
 
-* **Dual-Layer Tool Architecture**:
-* **Built-in AST Engine**: High-performance analysis via `get_repo_map`, `read_skeleton`, and dependency mapping without needing external services.
-* **External MCP Support**: Automatically connects to local MCP servers defined in `~/.cursor/mcp.json` or `~/.vscode/mcp.json`.
-
-
-* **Extensible Logic**: Inject custom business rules via `extraSystemPrompt` and define specialized handlers through `customTools` (e.g., for automated Merge Request reviews).
-* **Intelligent Context Management**:
-* **Token Guard**: Automatically intercepts large file reads to prevent context overflow.
-* **Dynamic Pruning**: Automatically prunes older message history when `maxTokens` is reached, ensuring the System Prompt and latest context remain intact.
+* **Dual Mode Support**:
+* **Standard Mode**: Lightweight, fast, and uses direct OpenAI-compatible API calls.
+* **LangChain Mode**: Orchestrated via ReAct agents, supporting complex tool-chains and custom model extensions.
 
 
-* **Programmatic API**: Built-in `agent.chat()` method for seamless integration into CI/CD pipelines or automated scripts.
+* **MCP Integration**: Built on the Model Context Protocol to bridge local development environments with AI.
+* **Repository Intelligence**: Integrated `PromptEngine` for generating project maps and code skeletons without exhausting tokens.
+* **Automated Audit Workflow**: Specialized tools for locating code violations, providing line-specific fixes, and generating structured JSON reports.
+* **Private LLM Gateway**: Easily adapt to non-standard API protocols (e.g., Jarvis, internal enterprise gateways) by extending the `BaseChatModel`.
 
-## 🚀 Quick Start
+---
 
-### 1. Installation
+## 🛠️ Installation
 
 ```bash
-npm install -g @saber2pr/ai-agent
+# Clone the repository
+git clone https://github.com/saber2pr/ai-agent.git
+cd ai-agent
+
+# Install dependencies
+npm install
+
+# Build the project
+npm run build
 
 ```
 
-### 2. Interactive CLI Mode
+---
 
-Launch the assistant to configure API credentials and start chatting with your local tools:
+## 🚀 Usage Modes
 
-```bash
-sagent
+### 1. Standard Edition (Direct API)
+
+Best for quick scripts and simple chat interactions. It uses a straightforward message-loop logic.
+
+```javascript
+const McpAgent = require("./lib/agent").default;
+
+const agent = new McpAgent({
+  targetDir: "/path/to/project"
+});
+
+await agent.chat("Analyze the directory structure.");
 
 ```
 
-### 3. Programmatic Integration (Automated Audit)
+### 2. LangChain Edition (Advanced Agent)
 
-Use the agent as a library to perform structured code reviews:
+Best for complex tasks like "Audit the whole project and fix bugs." It supports autonomous tool usage.
 
-```typescript
-import McpAgent from "@saber2pr/ai-agent";
+```javascript
+const McpAgent = require("./lib/agent-chain").default;
+const { MyPrivateLLM } = require("./your-custom-llm");
 
-async function runReview() {
-  const agent = new McpAgent({
-    targetDir: "./my-project",
-    maxTokens: 50000, 
-    extraSystemPrompt: "You are a Senior Architect. Identify any hardcoded color values.",
-    tools: [{
-      name: "generate_review",
-      description: "Submit a structured review report",
-      parameters: { /* Your IAiViolation schema */ },
-      handler: async (args) => { console.log("Reported Issues:", args); }
-    }]
-  });
+const agent = new McpAgent({
+  apiModel: new MyPrivateLLM(), // Inject custom LLM
+  maxIterations: 15,
+  targetDir: "/path/to/project"
+});
 
-  // Trigger one-shot analysis
-  await agent.chat("Analyze the src directory and report all hardcoded colors.");
+await agent.chat("Scan for hardcoded colors and submit a review report.");
+
+```
+
+---
+
+## 🔧 Extending with Private LLMs
+
+To use your own API protocol, extend the `BaseChatModel` from `@langchain/core`:
+
+```javascript
+const { BaseChatModel } = require("@langchain/core/language_models/chat_models");
+
+class MyPrivateLLM extends BaseChatModel {
+  async _generate(messages) {
+    const lastMessage = messages[messages.length - 1];
+    const response = await fetch("https://your-api.com/v1/chat", {
+      method: 'POST',
+      body: JSON.stringify({ query: lastMessage.content }),
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await response.json();
+    return {
+      generations: [{ text: data.text, message: { content: data.text, role: "assistant" } }]
+    };
+  }
+  _llmType() { return "private_llm"; }
 }
 
 ```
 
-## 🛠️ Core Toolkit
+---
 
-| Tool              | Description                                                                                                          |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `analyze_deps`    | Analyzes file dependencies with support for `tsconfig` path aliases.                                                 |
-| `get_method_body` | Precisely extracts the implementation of a specific function or method.                                              |
-| `get_repo_map`    | **Mandatory First Step**. Retrieves global file structure and exports to establish a project mental map.             |
-| `read_full_code`  | Reads full source code with line numbers. Includes built-in token overflow protection.                               |
-| `read_skeleton`   | Extracts interfaces, classes, and function signatures. **Token efficient**; highly recommended for initial analysis. |
+## 📦 Built-in Toolset
+
+| Tool              | Description                                                              |
+| ----------------- | ------------------------------------------------------------------------ |
+| `generate_review` | Finalizes the process by submitting a structured violation report.       |
+| `get_repo_map`    | Generates a high-level map of the project files and exports.             |
+| `read_full_code`  | Reads file content with line numbers for precise auditing.               |
+| `read_skeleton`   | Extracts class/function signatures without full logic (Token efficient). |
+
+---
+
+## 📋 Audit Rule Configuration
+
+You can pass structured rules via the `extraSystemPrompt`:
+
+```javascript
+const agent = new McpAgent({
+  extraSystemPrompt: {
+    role: "Code Auditor",
+    rules: [
+      { id: "THEME-001", name: "Theme Check", description: "No hardcoded hex colors." }
+    ]
+  }
+});
+
+```
+
+---
 
 ## ⚙️ Configuration
 
-Pass the following options when instantiating `McpAgent`:
+The agent stores API keys and base URLs in `~/.saber2pr-agent.json`.
 
-```typescript
-interface AgentOptions {
-  targetDir?: string;        // Project root directory (default: process.cwd())
-  tools?: CustomTool[];      // Custom tool extensions
-  extraSystemPrompt?: any;   // Business rules or persona definitions
-  maxTokens?: number;        // Context token limit (default: 100,000)
-}
+* `baseURL`: The API endpoint.
+* `apiKey`: Your authentication key.
+* `model`: The model name (e.g., `gpt-4o`, `claude-3-5-sonnet`).
 
-```
+---
 
-## 🏗️ Technical Implementation
+## 📜 License
 
-The agent uses a "Windowing" strategy for context management. When `maxTokens` is exceeded, it removes older messages starting from index 1, ensuring that the critical instructions in the System Prompt (index 0) are never lost.
-
-## 📄 License
-
-[ISC](https://www.google.com/search?q=./LICENSE) © saber2pr
+ISC
