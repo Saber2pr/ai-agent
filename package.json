@@ -9,7 +9,7 @@
   ],
   "bin": {
     "sagent": "./lib/cli.js",
-    "sagent-chain": "./lib/cli.js"
+    "sagent-chain": "./lib/cli-chain.js"
   },
   "publishConfig": {
     "access": "public",
