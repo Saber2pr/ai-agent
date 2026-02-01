@@ -51,6 +51,7 @@ export interface AgentOptions {
   tools?: any[];
   /** 注入到 System Prompt 中的额外指令/规则/上下文 */
   extraSystemPrompt?: any;
+  maxTokens?: number
 }
 
 const CONFIG_FILE = path.join(os.homedir(), ".saber2pr-agent.json");
@@ -64,10 +65,12 @@ export default class McpAgent {
   private engine: PromptEngine;
   private encoder = getEncoding("cl100k_base");
   private extraTools: CustomTool[] = [];
+  private maxTokens: number;
 
   constructor(options?: AgentOptions) {
     this.engine = new PromptEngine(options?.targetDir || process.cwd());
     this.extraTools = options?.tools || []; // 接收外部传入的工具
+    this.maxTokens = options?.maxTokens || 100000; // 默认 100k
 
     let baseSystemPrompt = `你是一个专业的 AI 代码架构师，具备深度的源码分析与工程化处理能力。
 
@@ -250,8 +253,13 @@ export default class McpAgent {
             required: ["filePath", "methodName"],
           },
         },
-        _handler: async ({ filePath, methodName }) =>
-          this.engine.getMethodImplementation(filePath, methodName),
+        _handler: async ({ filePath, methodName }) => {
+          // --- 新增：同样的 Token 守卫 ---
+          if (this.calculateTokens() > this.maxTokens) {
+            return `[SYSTEM WARNING]: Token 消耗已达上限，禁止获取详细方法体。请利用已获取的 Skeleton 信息进行分析。`;
+          }
+          return this.engine.getMethodImplementation(filePath, methodName)
+        },
       },
       {
         type: "function",
@@ -268,6 +276,12 @@ export default class McpAgent {
         },
         // 核心实现：直接利用 fs 读取
         _handler: async ({ filePath }) => {
+          // --- 新增：Token 守卫 ---
+          const currentTokens = this.calculateTokens();
+          if (currentTokens > this.maxTokens) {
+            return `[SYSTEM WARNING]: 当前上下文已达到 ${currentTokens} tokens (上限 ${this.maxTokens})。为了保证系统稳定，已拦截 read_full_code。请立即根据已知信息进行总结或停止阅读更多代码。`;
+          }
+
           try {
             if (typeof filePath !== 'string' || !filePath) {
               return "Error: filePath 不能为空";
@@ -387,9 +401,20 @@ export default class McpAgent {
     this.messages.push({ role: 'user', content: userInput });
 
     while (true) {
+      // --- 新增：发送请求前先检查并裁剪 ---
+      this.pruneMessages();
+
       // 打印当前上下文的累计 Token
       const currentInputTokens = this.calculateTokens();
       console.log(`\n📊 当前上下文累计: ${currentInputTokens} tokens`);
+
+      // 如果接近上限（如 80%），在消息队列中插入一条隐含的系统指令
+      if (currentInputTokens > this.maxTokens * 0.8 && currentInputTokens <= this.maxTokens) {
+        this.messages.push({
+          role: "system",
+          content: "注意：上下文即将耗尽。请停止读取新文件，优先处理现有信息并尽快输出结果。"
+        });
+      }
 
       const stopLoading = this.showLoading("🤖 Agent 正在思考...");
 
@@ -456,6 +481,27 @@ export default class McpAgent {
         console.log(`   ✅ 完成: ${call.function.name}`);
       }
     }
+  }
+
+  /**
+ * 裁剪上下文消息列表
+ * 保留第一条 System 消息，并移除中间的旧消息直到低于阈值
+ */
+  private pruneMessages() {
+    const currentTokens = this.calculateTokens();
+    if (currentTokens <= this.maxTokens) return;
+
+    console.log(`\n⚠️ 上下文达到限制 (${currentTokens} tokens)，正在自动裁剪...`);
+
+    // 策略：保留索引 0 (System)，从索引 1 开始删除
+    // 每次删除一对 (通常是助理请求 + 工具回复，或者用户提问 + 助理回答)
+    while (this.calculateTokens() > this.maxTokens && this.messages.length > 2) {
+      // 始终保留系统提示词 (index 0) 和最后一条消息 (保持对话连贯)
+      // 删除索引为 1 的消息
+      this.messages.splice(1, 1);
+    }
+
+    console.log(`✅ 裁剪完成，当前上下文: ${this.calculateTokens()} tokens`);
   }
 
   /**
