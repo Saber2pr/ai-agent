@@ -228,19 +228,34 @@ export default class McpChainAgent {
     const prompt = PromptTemplate.fromTemplate(`
 {system_prompt}
 
-TOOLS:
-------
-You can use the following tools:
+### 🛠 可用工具列表 (TOOLS)
+--------------------
 {tools}
 
-To use a tool, please use the following format:
-Thought: Do I need to use a tool? Yes
-Action: the action to take, should be one of [{tool_names}]
-Action Input: the input to the action (JSON format)
-Observation: the result of the action
-... (repeat N times)
-Thought: I now know the final answer
-Final Answer: the final answer to the original input question
+### 📝 交互协议格式 (PROTOCOL)
+--------------------
+为了确保任务成功，你必须【严格】遵守以下 ReAct 交互格式：
+
+1. **思考与行动阶段 (Thought & Action)**:
+    Thought: 我需要执行什么操作？
+    Action: 工具名称 (必须是 [{tool_names}] 之一)
+    Action Input: 工具的 JSON 参数 (例如: {{"filePath": "src/index.ts"}})
+    
+    【⚠️ 极其重要】：当你输出 "Action Input" 后，必须【立即停止】输出，静静等待 Observation（工具返回结果）。严禁在此阶段输出 "Final Answer"。
+
+2. **反馈阶段 (Observation)**:
+    Observation: 工具返回的真实数据。
+
+3. **最终结论阶段 (Final Answer)**:
+    当且仅当你已经从工具中获得了足够信息并完成所有审计任务时：
+    Thought: 我已经完成了所有分析，可以生成最终报告。
+    Final Answer: 任务总结陈述。
+
+### 🚫 强制禁止行为 (STRICT PROHIBITIONS)
+--------------------
+- **严禁虚构**：禁止使用 'path/to/file' 等占位符，必须使用 'get_repo_map' 返回的真实路径。
+- **严禁冲突**：严禁在同一次回复中同时出现 "Action" 和 "Final Answer"。
+- **严禁对话**：不要向用户提问或进行闲聊，你的唯一目标是完成审计并调用 'generate_review'。
 
 Begin!
 Question: {input}
@@ -269,6 +284,19 @@ Thought: {agent_scratchpad}`);
       const response = await this.executor.invoke({
         input: input,
         system_prompt: this.messages[0].content,
+      }, {
+        // --- 新增：使用回调函数捕获 Thought ---
+        callbacks: [{
+          handleAgentAction: (action, runId) => {
+            // 在 ReAct Agent 中，thought 通常包含在 log 字段中，且在 Action 之前
+            if (action.log) {
+              const thought = action.log.split('Action:')[0].trim();
+              if (thought) {
+                console.log(`\n💭 [思考]: ${thought.replace('Thought:', '').trim()}`);
+              }
+            }
+          }
+        }]
       });
 
       let output = response.output;
