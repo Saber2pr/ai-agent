@@ -19,6 +19,14 @@ A high-performance AI Agent toolkit designed for automated code auditing, reposi
 ## 🛠️ Installation
 
 ```bash
+sudo npm i -g @saber2pr/ai-agent
+
+# call openapi
+sagent
+
+# call third api
+sagent-chain
+
 # Clone the repository
 git clone https://github.com/saber2pr/ai-agent.git
 cd ai-agent
