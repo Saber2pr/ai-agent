@@ -26,6 +26,8 @@ export default class McpChainAgent {
   private apiModel?: BaseChatModel
   private targetDir: string;
   private verbose: boolean;
+  private runningTokenCounter: number = 0; // 新增：用于追踪当前 Task 的动态消耗
+
   constructor(options?: AgentOptions) {
     this.extraTools = options?.tools || [];
     this.maxTokens = options?.maxTokens || 100000;
@@ -70,8 +72,17 @@ export default class McpChainAgent {
       const content = typeof result === "string" ? result : JSON.stringify(result);
 
       // 3. 统计 Token 消耗
-      const tokens = this.encoder.encode(content).length;
-      console.log(`   [输出长度]: ${tokens} tokens`);
+      const outputTokens = this.encoder.encode(content).length;
+      console.log(`   [输出长度]: ${outputTokens} tokens`);
+
+      // 2. 更新动态计数器：
+      // 这里的逻辑是：当前基础 Context + 本次工具调用的输出
+      // 随着迭代增加，这个值会一直累加，直到任务结束存入 messages
+      const baseTokens = this.calculateTokens();
+      this.runningTokenCounter = baseTokens + outputTokens;
+
+      // 3. 打印正确且递增的状态
+      console.log(`   📊 状态: Context ${this.runningTokenCounter} / Limit ${this.maxTokens} tokens`);
 
       return content;
     };

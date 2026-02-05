@@ -128,17 +128,6 @@ export default class McpAgent {
     }
   }
 
-  /**
-   * 核心功能：内置代码分析工具（基于 engine/targetDir，可被外部通过 createDefaultBuiltinTools 替代）
-   */
-  private registerBuiltinTools(options?: AgentOptions) {
-    this.allTools.push(
-      ...createDefaultBuiltinTools({
-        options,
-      })
-    );
-  }
-
   // --- 初始化与环境准备 (API Config & MCP Servers) ---
 
   private async ensureApiConfig(): Promise<ApiConfig> {
