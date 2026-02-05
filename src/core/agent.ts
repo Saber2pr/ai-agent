@@ -9,7 +9,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 import { createDefaultBuiltinTools } from '../tools/builtin';
-import { AgentOptions, ApiConfig, CustomTool, McpConfig, ToolInfo } from '../types/type';
+import { AgentOptions, ApiConfig, McpConfig, ToolInfo } from '../types/type';
 import { CONFIG_FILE } from '../config/config';
 
 export default class McpAgent {
@@ -18,7 +18,7 @@ export default class McpAgent {
   private allTools: ToolInfo[] = [];
   private messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
   private encoder = getEncoding("cl100k_base");
-  private extraTools: CustomTool[] = [];
+  private extraTools: ToolInfo[] = [];
   private maxTokens: number;
   private apiConfig: ApiConfig
   private targetDir: string;
@@ -35,7 +35,7 @@ export default class McpAgent {
     1. **全局扫描（强制首选）**：在开始任何分析任务前，你【必须】首先调用 'get_repo_map'。这是你理解项目目录结构、技术栈及模块关系的唯一权威来源。
     2. **循序渐进的分析路径**：
        - 优先使用 'read_skeleton' 提取接口、类和函数签名，以最低的 Token 成本建立代码逻辑视图。
-       - 仅在需要深入分析具体业务逻辑、提取精准代码块或进行代码修改建议时，才使用 'read_full_code' 或 'get_method_body'。
+       - 仅在需要深入分析具体业务逻辑、提取精准代码块或进行代码修改建议时，才使用 'read_text_file' 或 'get_method_body'。
     3. **真实性原则**：
        - 所有的代码分析、行号定位和逻辑推断必须基于工具返回的真实内容，严禁基于文件名进行虚假猜测。
        - 如果工具返回结果为空或报错，应尝试调整路径或更换工具。
@@ -62,16 +62,7 @@ export default class McpAgent {
       content: baseSystemPrompt,
     });
 
-    // 初始化内置工具：外部传入则使用，否则走默认 registerBuiltinTools
-    if (options?.builtinTools?.length) {
-      this.allTools.push(...options.builtinTools);
-    } else {
-      this.registerBuiltinTools({
-        ...options,
-        ...this,
-      });
-    }
-    this.injectCustomTools(); // 注入外部工具
+    this.initTools(options); // 注入外部工具
   }
 
   /**
@@ -120,17 +111,20 @@ export default class McpAgent {
     return total;
   }
 
-  private injectCustomTools() {
-    for (const tool of this.extraTools) {
-      this.allTools.push({
-        type: "function",
-        function: {
-          name: tool.name,
-          description: tool.description,
-          parameters: tool.parameters,
-        },
-        _handler: tool.handler,
-      });
+  private initTools(options: AgentOptions) {
+    const allTools = [
+      // 注册内置工具
+      ...createDefaultBuiltinTools({
+        options: {
+          ...options,
+          ...this
+        }
+      }),
+      ...this.extraTools
+    ]
+
+    if (allTools?.length) {
+      this.allTools.push(...allTools);
     }
   }
 
@@ -141,7 +135,6 @@ export default class McpAgent {
     this.allTools.push(
       ...createDefaultBuiltinTools({
         options,
-        getCurrentTokens: () => this.calculateTokens(),
       })
     );
   }

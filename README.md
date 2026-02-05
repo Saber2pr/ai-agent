@@ -111,7 +111,7 @@ class MyPrivateLLM extends BaseChatModel {
 | ----------------- | ------------------------------------------------------------------------ |
 | `generate_review` | Finalizes the process by submitting a structured violation report.       |
 | `get_repo_map`    | Generates a high-level map of the project files and exports.             |
-| `read_full_code`  | Reads file content with line numbers for precise auditing.               |
+| `read_text_file`  | Reads file content with line numbers for precise auditing.               |
 | `read_skeleton`   | Extracts class/function signatures without full logic (Token efficient). |
 
 ---

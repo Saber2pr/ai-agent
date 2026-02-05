@@ -4,9 +4,7 @@ export interface CreateToolOptions {
   name: string;
   description: string;
   parameters: any;
-  handler: (args: any) => Promise<any>;
-  maxTokens: number;
-  getCurrentTokens: () => number;
+  handler: (args: any) => Promise<string>;
   validateParams?: string[]
 }
 
@@ -19,10 +17,6 @@ export function createTool(options: CreateToolOptions): ToolInfo {
       parameters: options.parameters,
     },
     _handler: async input => {
-      if (options.getCurrentTokens && options.maxTokens != null && options.getCurrentTokens() > options.maxTokens) {
-        return `[SYSTEM WARNING]: Token 消耗已达上限，禁止获取详细方法体。请利用已获取的 Skeleton 信息进行分析。`;
-      }
-
       // 兼容处理：如果 input 是字符串，尝试解析为 JSON 对象
       let args = input;
       if (typeof input === 'string') {

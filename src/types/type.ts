@@ -20,12 +20,6 @@ export interface ToolInfo {
   _originalName?: string;
 }
 
-export interface CustomTool {
-  name: string;
-  description: string;
-  parameters: any;
-  handler: (args: any) => Promise<any>;
-}
 
 export interface McpConfig {
   mcpServers: {
@@ -40,8 +34,7 @@ export interface McpConfig {
 export interface AgentOptions {
   targetDir?: string;
   /** 外部传入的内置工具列表，不传则使用默认的 registerBuiltinTools */
-  builtinTools?: ToolInfo[];
-  tools?: CustomTool[];
+  tools?: ToolInfo[];
   extraSystemPrompt?: any;
   maxTokens?: number;
   apiConfig?: ApiConfig

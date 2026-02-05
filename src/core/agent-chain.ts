@@ -1,25 +1,24 @@
 import fs from 'fs';
 import { getEncoding } from 'js-tiktoken';
-import { AgentExecutor, createReactAgent, createStructuredChatAgent } from 'langchain/agents';
+import { AgentExecutor, createStructuredChatAgent } from 'langchain/agents';
 import OpenAI from 'openai';
 import * as readline from 'readline';
 
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { PromptTemplate } from '@langchain/core/prompts';
-import { DynamicStructuredTool, DynamicTool, StructuredTool } from '@langchain/core/tools';
+import { DynamicStructuredTool } from '@langchain/core/tools';
 import { ChatOpenAI } from '@langchain/openai';
 
-import { z } from 'zod';
-import { createDefaultBuiltinTools } from '../tools/builtin';
 import { CONFIG_FILE } from '../config/config';
-import { AgentOptions, ApiConfig, CustomTool, ToolInfo } from '../types/type';
+import { AgentOptions, ApiConfig, ToolInfo } from '../types/type';
 import { jsonSchemaToZod } from '../utils/jsonSchemaToZod';
+import { createDefaultBuiltinTools } from '../tools/builtin';
 
 export default class McpChainAgent {
   private allTools: ToolInfo[] = [];
   private messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
   private encoder = getEncoding("cl100k_base");
-  private extraTools: CustomTool[] = [];
+  private extraTools: ToolInfo[] = [];
   private maxTokens: number;
   private executor?: AgentExecutor;
   private apiConfig: ApiConfig
@@ -41,7 +40,7 @@ export default class McpChainAgent {
 1. **全局扫描（强制首选）**：在开始任何分析任务前，你【必须】首先调用 'get_repo_map'。这是理解项目结构、技术栈及模块关系的唯一来源。
 2. **循序渐进的分析路径**：
    - 优先使用 'read_skeleton' 提取接口和函数签名。
-   - 仅在需要分析具体逻辑或准备修复代码时，才使用 'read_full_code'。
+   - 仅在需要分析具体逻辑或准备修复代码时，才使用 'read_text_file'。
 3. **真实性原则**：所有的代码分析必须基于工具返回的真实内容，严禁虚假猜测。`;
 
     this.messages.push({
@@ -51,21 +50,8 @@ export default class McpChainAgent {
         : baseSystemPrompt,
     });
 
-    if (options?.builtinTools?.length) {
-      this.allTools.push(
-        ...options.builtinTools.map((t) => ({
-          type: t.type as "function",
-          function: t.function,
-          _handler: this.wrapHandler(t.function.name, t._handler),
-        }))
-      );
-    } else {
-      this.registerBuiltinTools({
-        ...options,
-        ...this,
-      });
-    }
-    this.injectCustomTools();
+
+    this.initTools(options);
   }
 
   /**
@@ -91,27 +77,26 @@ export default class McpChainAgent {
     };
   }
 
-  private registerBuiltinTools(options: AgentOptions) {
-    const defaults = createDefaultBuiltinTools({
-      options,
-      getCurrentTokens: () => this.calculateTokens(),
-    });
-    this.allTools.push(
-      ...defaults.map((t) => ({
-        type: t.type as "function",
-        function: t.function,
-        _handler: this.wrapHandler(t.function.name, t._handler),
-      }))
-    );
-  }
+  private initTools(options: AgentOptions) {
+    const allTools = [
+      // 注册内置工具
+      ...createDefaultBuiltinTools({
+        options: {
+          ...options,
+          ...this
+        }
+      }),
+      ...this.extraTools
+    ]
 
-  private injectCustomTools() {
-    for (const tool of this.extraTools) {
-      this.allTools.push({
-        type: "function",
-        function: { name: tool.name, description: tool.description, parameters: tool.parameters },
-        _handler: this.wrapHandler(tool.name, tool.handler),
-      });
+    if (allTools?.length) {
+      this.allTools.push(
+        ...allTools.map((t) => ({
+          type: t.type as "function",
+          function: t.function,
+          _handler: this.wrapHandler(t.function.name, t._handler),
+        }))
+      );
     }
   }
 
@@ -164,6 +149,7 @@ export default class McpChainAgent {
         },
       });
     });
+    // src/core/agent-chain.ts 中的 prompt 修改
     const prompt = PromptTemplate.fromTemplate(`
 {system_prompt}
 
@@ -177,7 +163,7 @@ export default class McpChainAgent {
 --------------------
 你必须严格遵守以下回复格式：
 
-Thought: [此处写下你的思考过程]
+Thought: 首先，我会[此处用中文简述你的分析思路和下一步目标]。
 \`\`\`json
 {{
   "action": "工具名称",
@@ -186,8 +172,8 @@ Thought: [此处写下你的思考过程]
 \`\`\`
 
 注意：
-- 每次调用工具前必须先写 Thought。
-- 最终结论请使用 "action": "Final Answer"。
+- 严禁直接输出 JSON，必须先写 Thought。
+- Thought 必须包含具体的分析意图，不少于 10 个字。
 
 Begin!
 Question: {input}
@@ -220,23 +206,26 @@ Thought: {agent_scratchpad}`);
         // --- 新增：使用回调函数捕获 Thought ---
         callbacks: [{
           handleAgentAction: (action, runId) => {
-            // action.log 包含了 LLM 输出的所有文本（包含 Thought 和 JSON）
             if (action.log) {
               const log = action.log.trim();
 
-              // 正则说明：匹配 Thought: 到 ```json 或 { 之间的内容
-              const thoughtMatch = log.match(/Thought:\s*([\s\S]*?)(?=(?:```json|\{|$))/i);
+              // 1. 提取 Thought 部分：取 Thought: 之后，直到遇到 ```json 或 { 之前的内容
+              const thoughtMatch = log.match(/Thought:\s*([\s\S]*?)(?=(?:```json|\{|Action:|$))/i);
 
+              let thought = "";
               if (thoughtMatch && thoughtMatch[1]) {
-                const thought = thoughtMatch[1].trim();
-                if (thought) {
-                  console.log(`\n💭 [思考]: ${thought}`);
-                }
-              } else if (!log.startsWith('{') && !log.startsWith('```')) {
-                // 备选方案：如果没匹配到 Thought 标签，但有非 JSON 开头的文字，也打印出来
-                const rawThought = log.split(/```json|\{/)[0].trim();
-                if (rawThought) {
-                  console.log(`\n💭 [思考]: ${rawThought}`);
+                thought = thoughtMatch[1].trim();
+              } else {
+                // 备选方案：如果没有 Thought 标签，直接截取 JSON 之前的文本
+                thought = log.split(/```json|\{/)[0].replace(/Thought:/i, "").trim();
+              }
+
+              // 2. 只有当 thought 真的有文字内容（且不是 JSON）时才打印
+              if (thought && thought.length > 0 && !thought.startsWith('{')) {
+                // 进一步清洗：如果 thought 包含多行，只取非空的第一行，避免打印太长
+                const displayThought = thought.split('\n').find(line => line.trim().length > 0);
+                if (displayThought) {
+                  console.log(`\n💭 [思考]: ${displayThought}`);
                 }
               }
             }
@@ -244,7 +233,11 @@ Thought: {agent_scratchpad}`);
         }]
       });
 
-      let output = response.output;
+      // 修复点：确保 output 是字符串
+      let output = typeof response.output === 'string'
+        ? response.output
+        : JSON.stringify(response.output);
+
       // 清洗 ReAct 冗余标签
       if (output.includes("Final Answer:")) {
         output = output.split("Final Answer:").pop()?.trim() || output;
