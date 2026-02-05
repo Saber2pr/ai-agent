@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import McpAgentManager from "./agent-chain";
+import McpChainAgent from "./core/agent-chain";
 
-const manager = new McpAgentManager();
-manager.start()
+const agent = new McpChainAgent();
+agent.start();

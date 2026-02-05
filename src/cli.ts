@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import McpAgentManager from "./agent";
+import McpAgent from "./core/agent";
 
-const manager = new McpAgentManager();
-manager.start()
+const agent = new McpAgent();
+agent.start();

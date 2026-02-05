@@ -1,76 +1,30 @@
-import OpenAI from "openai";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import fs from "fs";
-import path from "path";
-import os from "os";
-import * as readline from "readline";
-import { PromptEngine } from "@saber2pr/ts-context-mcp"; // 引入我们的核心引擎
-import { getEncoding } from "js-tiktoken";
+import fs from 'fs';
+import { getEncoding } from 'js-tiktoken';
+import OpenAI from 'openai';
+import os from 'os';
+import path from 'path';
+import * as readline from 'readline';
 
-// --- 配置定义 ---
-interface McpConfig {
-  mcpServers: {
-    [key: string]: {
-      command: string;
-      args?: string[];
-      env?: Record<string, string>;
-    };
-  };
-}
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
-interface ApiConfig {
-  baseURL: string;
-  apiKey: string;
-  model: string;
-}
-
-interface ToolInfo {
-  type: "function";
-  function: {
-    name: string;
-    description?: string;
-    parameters: any;
-  };
-  _handler?: (args: any) => Promise<any>; // 内置工具处理器
-  _client?: Client; // 外部 MCP 客户端
-  _originalName?: string;
-}
-
-// 定义工具扩展接口
-export interface CustomTool {
-  name: string;
-  description: string;
-  parameters: any;
-  handler: (args: any) => Promise<any>;
-}
-
-export interface AgentOptions {
-  targetDir?: string;
-  /** 自定义工具扩展 */
-  tools?: any[];
-  /** 注入到 System Prompt 中的额外指令/规则/上下文 */
-  extraSystemPrompt?: any;
-  maxTokens?: number
-  apiConfig?: ApiConfig
-}
-
-const CONFIG_FILE = path.join(os.homedir(), ".saber2pr-agent.json");
+import { createDefaultBuiltinTools } from '../tools/builtin.js';
+import { AgentOptions, ApiConfig, CustomTool, McpConfig, ToolInfo } from '../types/type.js';
+import { CONFIG_FILE } from '../config/config.js';
 
 export default class McpAgent {
   private openai!: OpenAI;
   private modelName: string = "";
-  private clients: Client[] = [];
   private allTools: ToolInfo[] = [];
   private messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
-  private engine: PromptEngine;
   private encoder = getEncoding("cl100k_base");
   private extraTools: CustomTool[] = [];
   private maxTokens: number;
   private apiConfig: ApiConfig
+  private targetDir: string;
 
   constructor(options?: AgentOptions) {
-    this.engine = new PromptEngine(options?.targetDir || process.cwd());
+    this.targetDir = options?.targetDir || process.cwd();
     this.extraTools = options?.tools || []; // 接收外部传入的工具
     this.maxTokens = options?.maxTokens || 100000; // 默认 100k
     this.apiConfig = options?.apiConfig
@@ -108,8 +62,15 @@ export default class McpAgent {
       content: baseSystemPrompt,
     });
 
-    // 初始化内置工具
-    this.registerBuiltinTools();
+    // 初始化内置工具：外部传入则使用，否则走默认 registerBuiltinTools
+    if (options?.builtinTools?.length) {
+      this.allTools.push(...options.builtinTools);
+    } else {
+      this.registerBuiltinTools({
+        ...options,
+        ...this,
+      });
+    }
     this.injectCustomTools(); // 注入外部工具
   }
 
@@ -174,146 +135,15 @@ export default class McpAgent {
   }
 
   /**
-   * 核心功能：内置代码分析工具
-   * 这里的逻辑直接调用 PromptEngine，不走网络请求，效率极高
+   * 核心功能：内置代码分析工具（基于 engine/targetDir，可被外部通过 createDefaultBuiltinTools 替代）
    */
-  private registerBuiltinTools() {
-    const builtinTools: ToolInfo[] = [
-      {
-        type: "function",
-        function: {
-          name: "get_repo_map",
-          description: "获取项目全局文件结构及导出清单，用于快速定位代码",
-          parameters: { type: "object", properties: {} },
-        },
-        _handler: async () => {
-          this.engine.refresh();
-          return this.engine.getRepoMap();
-        },
-      },
-      {
-        type: "function",
-        function: {
-          name: "analyze_deps",
-          description: "分析指定文件的依赖关系，支持 tsconfig 路径别名解析",
-          parameters: {
-            type: "object",
-            properties: {
-              filePath: { type: "string", description: "文件相对路径" },
-            },
-            required: ["filePath"],
-          },
-        },
-        _handler: async ({ filePath }) => this.engine.getDeps(filePath),
-      },
-      {
-        type: "function",
-        function: {
-          name: "read_skeleton",
-          description:
-            "提取文件的结构定义（接口、类、方法签名），忽略具体实现以节省 Token",
-          parameters: {
-            type: "object",
-            properties: {
-              filePath: { type: "string", description: "文件相对路径" },
-            },
-            required: ["filePath"],
-          },
-        },
-        _handler: async (args: any) => {
-          // 1. 严格路径守卫：防止 undefined 或空字符串进入 path 模块
-          const pathArg = args?.filePath;
-          if (typeof pathArg !== 'string' || pathArg.trim() === '') {
-            return `Error: 参数 'filePath' 无效。收到的是: ${JSON.stringify(pathArg)}`;
-          }
-
-          try {
-            // 2. 刷新引擎状态，确保分析的是最新的文件内容
-            this.engine.refresh();
-
-            // 3. 执行获取
-            const result = this.engine.getSkeleton(pathArg);
-
-            // 4. 空值回退：防止 getSkeleton 返回 null 导致后续统计 Token 时崩溃
-            return result || `// Warning: 文件 ${pathArg} 存在但未找到任何可提取的结构。`;
-          } catch (error: any) {
-            // 5. 捕获 AST 级别的 match 错误
-            return `Error: 解析文件 ${pathArg} 时发生内部错误: ${error.message}`;
-          }
-        },
-      },
-      {
-        type: "function",
-        function: {
-          name: "get_method_body",
-          description: "获取指定文件内某个方法或函数的完整实现代码",
-          parameters: {
-            type: "object",
-            properties: {
-              filePath: { type: "string", description: "文件路径" },
-              methodName: { type: "string", description: "方法名或函数名" },
-            },
-            required: ["filePath", "methodName"],
-          },
-        },
-        _handler: async ({ filePath, methodName }) => {
-          // --- 新增：同样的 Token 守卫 ---
-          if (this.calculateTokens() > this.maxTokens) {
-            return `[SYSTEM WARNING]: Token 消耗已达上限，禁止获取详细方法体。请利用已获取的 Skeleton 信息进行分析。`;
-          }
-          return this.engine.getMethodImplementation(filePath, methodName)
-        },
-      },
-      {
-        type: "function",
-        function: {
-          name: "read_full_code",
-          description: "读取指定文件的完整源代码内容。当需要分析具体实现逻辑或查找硬编码字符串时使用。",
-          parameters: {
-            type: "object",
-            properties: {
-              filePath: { type: "string", description: "文件相对路径" },
-            },
-            required: ["filePath"],
-          },
-        },
-        // 核心实现：直接利用 fs 读取
-        _handler: async ({ filePath }) => {
-          // --- 新增：Token 守卫 ---
-          const currentTokens = this.calculateTokens();
-          if (currentTokens > this.maxTokens) {
-            return `[SYSTEM WARNING]: 当前上下文已达到 ${currentTokens} tokens (上限 ${this.maxTokens})。为了保证系统稳定，已拦截 read_full_code。请立即根据已知信息进行总结或停止阅读更多代码。`;
-          }
-
-          try {
-            if (typeof filePath !== 'string' || !filePath) {
-              return "Error: filePath 不能为空";
-            }
-            // 拼合绝对路径
-            const fullPath = path.resolve(this.engine.getRootDir(), filePath);
-
-            // 安全检查：防止 AI 尝试读取项目外的敏感文件
-            if (!fullPath.startsWith(this.engine.getRootDir())) {
-              return "Error: 权限拒绝，禁止访问项目目录外的文件。";
-            }
-
-            if (!fs.existsSync(fullPath)) {
-              return `Error: 文件不存在: ${filePath}`;
-            }
-
-            const content = fs.readFileSync(fullPath, "utf-8");
-            // 加上行号，AI 就能在 generate_review 里给出准确的 line 参数
-            return content.split('\n')
-              .map((line, i) => `${i + 1} | ${line}`)
-              .join('\n');
-          } catch (err: any) {
-            return `Error: 读取文件失败: ${err.message}`;
-          }
-        },
-      },
-    ];
-
-    this.allTools.push(...builtinTools);
+  private registerBuiltinTools(options?: AgentOptions) {
+    this.allTools.push(
+      ...createDefaultBuiltinTools({
+        options,
+        getCurrentTokens: () => this.calculateTokens(),
+      })
+    );
   }
 
   // --- 初始化与环境准备 (API Config & MCP Servers) ---
@@ -555,7 +385,7 @@ export default class McpAgent {
       input: process.stdin,
       output: process.stdout,
     });
-    console.log(`\n🚀 代码助手已启动 (目标目录: ${this.engine.getRootDir()})`);
+    console.log(`\n🚀 代码助手已启动 (目标目录: ${this.targetDir})`);
 
     const chatLoop = () => {
       rl.question("\n👤 你: ", async (input) => {

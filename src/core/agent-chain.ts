@@ -1,56 +1,21 @@
-import OpenAI from "openai";
-import fs from "fs";
-import path from "path";
-import os from "os";
-import * as readline from "readline";
-import { PromptEngine } from "@saber2pr/ts-context-mcp";
-import { getEncoding } from "js-tiktoken";
-import { ChatOpenAI } from "@langchain/openai";
-import { DynamicTool } from "@langchain/core/tools";
-import { AgentExecutor, createReactAgent } from "langchain/agents";
-import { PromptTemplate } from "@langchain/core/prompts";
-import { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import fs from 'fs';
+import { getEncoding } from 'js-tiktoken';
+import { AgentExecutor, createReactAgent } from 'langchain/agents';
+import OpenAI from 'openai';
+import * as readline from 'readline';
 
-// --- 类型定义 ---
-interface ApiConfig {
-  baseURL: string;
-  apiKey: string;
-  model: string;
-}
+import { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import { PromptTemplate } from '@langchain/core/prompts';
+import { DynamicTool } from '@langchain/core/tools';
+import { ChatOpenAI } from '@langchain/openai';
 
-interface ToolInfo {
-  type: "function";
-  function: {
-    name: string;
-    description?: string;
-    parameters: any;
-  };
-  _handler?: (args: any) => Promise<any>;
-}
-
-export interface CustomTool {
-  name: string;
-  description: string;
-  parameters: any;
-  handler: (args: any) => Promise<any>;
-}
-
-export interface AgentOptions {
-  targetDir?: string;
-  tools?: CustomTool[];
-  extraSystemPrompt?: any;
-  maxTokens?: number;
-  apiConfig?: ApiConfig
-  apiModel?: BaseChatModel
-  maxIterations?: number
-}
-
-const CONFIG_FILE = path.join(os.homedir(), ".saber2pr-agent.json");
+import { createDefaultBuiltinTools } from '../tools/builtin';
+import { CONFIG_FILE } from '../config/config';
+import { AgentOptions, ApiConfig, CustomTool, ToolInfo } from '../types/type';
 
 export default class McpChainAgent {
   private allTools: ToolInfo[] = [];
   private messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
-  private engine: PromptEngine;
   private encoder = getEncoding("cl100k_base");
   private extraTools: CustomTool[] = [];
   private maxTokens: number;
@@ -58,15 +23,15 @@ export default class McpChainAgent {
   private apiConfig: ApiConfig
   private maxIterations: number
   private apiModel?: BaseChatModel
+  private targetDir: string;
 
   constructor(options?: AgentOptions) {
-    this.engine = new PromptEngine(options?.targetDir || process.cwd());
     this.extraTools = options?.tools || [];
     this.maxTokens = options?.maxTokens || 100000;
     this.apiConfig = options?.apiConfig
     this.maxIterations = options?.maxIterations || 20
     this.apiModel = options?.apiModel
-
+    this.targetDir = options?.targetDir || process.cwd();
     const baseSystemPrompt = `你是一个专业的 AI 代码架构师，具备深度的源码分析与工程化处理能力。
     
 ### 核心操作规范：
@@ -83,7 +48,20 @@ export default class McpChainAgent {
         : baseSystemPrompt,
     });
 
-    this.registerBuiltinTools();
+    if (options?.builtinTools?.length) {
+      this.allTools.push(
+        ...options.builtinTools.map((t) => ({
+          type: t.type as "function",
+          function: t.function,
+          _handler: this.wrapHandler(t.function.name, t._handler),
+        }))
+      );
+    } else {
+      this.registerBuiltinTools({
+        ...options,
+        ...this,
+      });
+    }
     this.injectCustomTools();
   }
 
@@ -110,67 +88,18 @@ export default class McpChainAgent {
     };
   }
 
-  private registerBuiltinTools() {
-    const builtinTools: ToolInfo[] = [
-      {
-        type: "function",
-        function: { name: "get_repo_map", description: "获取项目全局结构图和导出清单", parameters: { type: "object" } },
-        _handler: this.wrapHandler("get_repo_map", async () => {
-          this.engine.refresh();
-          return this.engine.getRepoMap();
-        }),
-      },
-      {
-        type: "function",
-        function: {
-          name: "read_skeleton",
-          description: "读取代码骨架（接口、类定义等），非常节省 Token",
-          parameters: { type: "object", properties: { filePath: { type: "string" } } },
-        },
-        _handler: this.wrapHandler("read_skeleton", async ({ filePath }) => this.engine.getSkeleton(filePath)),
-      },
-      {
-        type: "function",
-        function: {
-          name: "read_full_code",
-          description: "读取完整源码。注意：仅在需要具体行号或精细逻辑时使用",
-          parameters: { type: "object", properties: { filePath: { type: "string" } } },
-        },
-        _handler: this.wrapHandler("read_full_code", async ({ filePath }) => {
-          // --- 新增：Token 守卫 ---
-          const currentTokens = this.calculateTokens();
-          if (currentTokens > this.maxTokens) {
-            return `[SYSTEM WARNING]: 当前上下文已达到 ${currentTokens} tokens (上限 ${this.maxTokens})。为了保证系统稳定，已拦截 read_full_code。请立即根据已知信息进行总结或停止阅读更多代码。`;
-          }
-
-          try {
-            if (typeof filePath !== 'string' || !filePath) {
-              return "Error: filePath 不能为空";
-            }
-            // 拼合绝对路径
-            const fullPath = path.resolve(this.engine.getRootDir(), filePath);
-
-            // 安全检查：防止 AI 尝试读取项目外的敏感文件
-            if (!fullPath.startsWith(this.engine.getRootDir())) {
-              return "Error: 权限拒绝，禁止访问项目目录外的文件。";
-            }
-
-            if (!fs.existsSync(fullPath)) {
-              return `Error: 文件不存在: ${filePath}`;
-            }
-
-            const content = fs.readFileSync(fullPath, "utf-8");
-            // 加上行号，AI 就能在 generate_review 里给出准确的 line 参数
-            return content.split('\n')
-              .map((line, i) => `${i + 1} | ${line}`)
-              .join('\n');
-          } catch (err: any) {
-            return `Error: 读取文件失败: ${err.message}`;
-          }
-        }),
-      }
-    ];
-    this.allTools.push(...builtinTools);
+  private registerBuiltinTools(options: AgentOptions) {
+    const defaults = createDefaultBuiltinTools({
+      options,
+      getCurrentTokens: () => this.calculateTokens(),
+    });
+    this.allTools.push(
+      ...defaults.map((t) => ({
+        type: t.type as "function",
+        function: t.function,
+        _handler: this.wrapHandler(t.function.name, t._handler),
+      }))
+    );
   }
 
   private injectCustomTools() {
@@ -329,7 +258,7 @@ Thought: {agent_scratchpad}`);
     await this.init();
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     console.log(`\n🚀 AI 助手启动 (LangChain 核心)`);
-    console.log(`📂 目标目录: ${this.engine.getRootDir()}`);
+    console.log(`📂 目标目录: ${this.targetDir}`);
 
     const chatLoop = () => {
       rl.question("\n👤 你: ", async (input) => {
