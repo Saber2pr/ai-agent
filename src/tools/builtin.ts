@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { AgentOptions, ToolInfo } from '../types/type';
 import { PromptEngine } from '@saber2pr/ts-context-mcp';
+import { createTool } from '../utils/createTool';
 
 export interface BuiltinToolsContext {
   options?: AgentOptions;
@@ -18,43 +19,33 @@ export function createDefaultBuiltinTools(context: BuiltinToolsContext): ToolInf
   const rootDir = () => engine.getRootDir();
 
   return [
-    {
-      type: "function",
-      function: {
-        name: "get_repo_map",
-        description: "获取项目全局文件结构及导出清单，用于快速定位代码",
-        parameters: { type: "object", properties: {} },
-      },
-      _handler: async () => {
+    createTool({
+      maxTokens,
+      getCurrentTokens,
+      name: "get_repo_map",
+      description: "获取项目全局文件结构及导出清单，用于快速定位代码",
+      parameters: { type: "object", properties: {} },
+      handler: async () => {
         engine.refresh();
         return engine.getRepoMap();
       },
-    },
-    {
-      type: "function",
-      function: {
-        name: "analyze_deps",
-        description: "分析指定文件的依赖关系，支持 tsconfig 路径别名解析",
-        parameters: {
-          type: "object",
-          properties: { filePath: { type: "string", description: "文件相对路径" } },
-          required: ["filePath"],
-        },
-      },
-      _handler: async ({ filePath }: any) => engine.getDeps(filePath),
-    },
-    {
-      type: "function",
-      function: {
-        name: "read_skeleton",
-        description: "提取文件的结构定义（接口、类、方法签名），忽略具体实现以节省 Token",
-        parameters: {
-          type: "object",
-          properties: { filePath: { type: "string", description: "文件相对路径" } },
-          required: ["filePath"],
-        },
-      },
-      _handler: async (args: any) => {
+    }),
+    createTool({
+      maxTokens,
+      getCurrentTokens,
+      name: "analyze_deps",
+      description: "分析指定文件的依赖关系，支持 tsconfig 路径别名解析",
+      parameters: { type: "object", properties: { filePath: { type: "string", description: "文件相对路径", required: true } } },
+      validateParams: ["filePath"],
+      handler: async ({ filePath }: any) => engine.getDeps(filePath),
+    }),
+    createTool({
+      maxTokens,
+      getCurrentTokens,
+      name: "read_skeleton",
+      description: "提取文件的结构定义（接口、类、方法签名），忽略具体实现以节省 Token",
+      parameters: { type: "object", properties: { filePath: { type: "string", description: "文件相对路径" } } },
+      handler: async (args) => {
         const pathArg = args?.filePath;
         if (typeof pathArg !== "string" || pathArg.trim() === "") {
           return `Error: 参数 'filePath' 无效。收到的是: ${JSON.stringify(pathArg)}`;
@@ -67,43 +58,24 @@ export function createDefaultBuiltinTools(context: BuiltinToolsContext): ToolInf
           return `Error: 解析文件 ${pathArg} 时发生内部错误: ${error.message}`;
         }
       },
-    },
-    {
-      type: "function",
-      function: {
-        name: "get_method_body",
-        description: "获取指定文件内某个方法或函数的完整实现代码",
-        parameters: {
-          type: "object",
-          properties: {
-            filePath: { type: "string", description: "文件路径" },
-            methodName: { type: "string", description: "方法名或函数名" },
-          },
-          required: ["filePath", "methodName"],
-        },
-      },
-      _handler: async ({ filePath, methodName }: any) => {
-        if (getCurrentTokens && maxTokens != null && getCurrentTokens() > maxTokens) {
-          return `[SYSTEM WARNING]: Token 消耗已达上限，禁止获取详细方法体。请利用已获取的 Skeleton 信息进行分析。`;
-        }
+    }),
+    createTool({
+      maxTokens,
+      getCurrentTokens,
+      name: "get_method_body",
+      description: "获取指定文件内某个方法或函数的完整实现代码",
+      parameters: { type: "object", properties: { filePath: { type: "string", description: "文件相对路径" }, methodName: { type: "string", description: "方法名或函数名" } } },
+      handler: async ({ filePath, methodName }: any) => {
         return engine.getMethodImplementation(filePath, methodName);
       },
-    },
-    {
-      type: "function",
-      function: {
-        name: "read_full_code",
-        description: "读取指定文件的完整源代码内容。当需要分析具体实现逻辑或查找硬编码字符串时使用。",
-        parameters: {
-          type: "object",
-          properties: { filePath: { type: "string", description: "文件相对路径" } },
-          required: ["filePath"],
-        },
-      },
-      _handler: async ({ filePath }: any) => {
-        if (getCurrentTokens && maxTokens != null && getCurrentTokens() > maxTokens) {
-          return `[SYSTEM WARNING]: 当前上下文已达到 ${getCurrentTokens()} tokens (上限 ${maxTokens})。为了保证系统稳定，已拦截 read_full_code。请立即根据已知信息进行总结或停止阅读更多代码。`;
-        }
+    }),
+    createTool({
+      maxTokens,
+      getCurrentTokens,
+      name: "read_full_code",
+      description: "读取指定文件的完整源代码内容。当需要分析具体实现逻辑或查找硬编码字符串时使用。",
+      parameters: { type: "object", properties: { filePath: { type: "string", description: "文件相对路径" } } },
+      handler: async ({ filePath }: any) => {
         try {
           if (typeof filePath !== "string" || !filePath) {
             return "Error: filePath 不能为空";
@@ -124,6 +96,6 @@ export function createDefaultBuiltinTools(context: BuiltinToolsContext): ToolInf
           return `Error: 读取文件失败: ${err.message}`;
         }
       },
-    },
+    }),
   ];
 }

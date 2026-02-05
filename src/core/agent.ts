@@ -8,9 +8,9 @@ import * as readline from 'readline';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
-import { createDefaultBuiltinTools } from '../tools/builtin.js';
-import { AgentOptions, ApiConfig, CustomTool, McpConfig, ToolInfo } from '../types/type.js';
-import { CONFIG_FILE } from '../config/config.js';
+import { createDefaultBuiltinTools } from '../tools/builtin';
+import { AgentOptions, ApiConfig, CustomTool, McpConfig, ToolInfo } from '../types/type';
+import { CONFIG_FILE } from '../config/config';
 
 export default class McpAgent {
   private openai!: OpenAI;

@@ -47,4 +47,5 @@ export interface AgentOptions {
   apiConfig?: ApiConfig
   apiModel?: BaseChatModel
   maxIterations?: number
+  verbose?: boolean
 }
