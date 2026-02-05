@@ -1,16 +1,12 @@
 import { z } from "zod";
 
-// 将 JSON Schema 转换为 Zod Schema 的简易转换器
-export function jsonSchemaToZod(parameters: any) {
-  if (!parameters || !parameters.properties) {
-    return z.object({}).loose();
+export function jsonSchemaToZod(parameters: any): z.ZodObject<any> {
+  if (!parameters || typeof parameters !== 'object') {
+    return z.object({}).passthrough();
   }
 
-  const obj: any = {};
-  const properties = parameters.properties;
-
-  for (const key in properties) {
-    const prop = properties[key];
+  // 辅助函数：递归转换单个属性
+  function convertProp(prop: any): z.ZodTypeAny {
     let schema: z.ZodTypeAny = z.any();
 
     if (prop.type === "string") {
@@ -19,16 +15,43 @@ export function jsonSchemaToZod(parameters: any) {
       schema = z.number();
     } else if (prop.type === "boolean") {
       schema = z.boolean();
+    } else if (prop.type === "array") {
+      // 递归处理数组项
+      if (prop.items) {
+        schema = z.array(convertProp(prop.items));
+      } else {
+        schema = z.array(z.any());
+      }
+    } else if (prop.type === "object") {
+      // 递归处理嵌套对象
+      const nestedObj: any = {};
+      if (prop.properties) {
+        for (const key in prop.properties) {
+          nestedObj[key] = convertProp(prop.properties[key]);
+        }
+      }
+      schema = z.object(nestedObj).passthrough();
     }
 
     if (prop.description) {
       schema = schema.describe(prop.description);
     }
 
-    // 默认都设为 optional 以防 Agent 报错，除非在 JSON Schema 的 required 数组中
+    return schema;
+  }
+
+  const obj: any = {};
+  const properties = parameters.properties || {};
+
+  for (const key in properties) {
+    const prop = properties[key];
+    let schema = convertProp(prop);
+
+    // 处理必填项
     const isRequired = parameters.required?.includes(key);
     obj[key] = isRequired ? schema : schema.optional();
   }
 
-  return z.object(obj).loose();
+  // 使用 passthrough 或 loose 以增加容错性
+  return z.object(obj).passthrough();
 }
