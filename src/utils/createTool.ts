@@ -30,8 +30,8 @@ export function createTool(options: CreateToolOptions): ToolInfo {
       if (options.validateParams?.length > 0) {
         for (const arg in args) {
           if (options.validateParams.includes(arg)) {
-            if (typeof args[arg] !== "string" || args[arg].trim() === "") {
-              return `Error: 参数 '${arg}' 无效。收到的是: ${JSON.stringify(args[arg])}`;
+            if (typeof args[arg] === 'undefined') {
+              return `Error: 参数 '${arg}' 缺失`;
             }
           }
         }
