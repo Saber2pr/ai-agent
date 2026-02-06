@@ -66,11 +66,13 @@ export default class McpGraphAgent {
   private stopLoadingFunc: (() => void) | null = null;
   private verbose: boolean;
   private alwaysSystem: boolean;
+  private recursionLimit: number;
   constructor(options: AgentOptions = {}) {
     this.options = options;
     this.verbose = options.verbose || false;
     this.alwaysSystem = options.alwaysSystem || true;
     this.targetDir = options.targetDir || process.cwd();
+    this.recursionLimit = options.recursionLimit || 200;
     process.setMaxListeners(100);
 
     // ✅ 修复 AbortSignal 监听器数量警告
@@ -162,7 +164,7 @@ export default class McpGraphAgent {
       messages: [new HumanMessage(query)],
       mode: "auto",
       targetCount: 4,
-    }, { configurable: { thread_id: "auto_worker" }, recursionLimit: 100, debug: this.verbose });
+    }, { configurable: { thread_id: "auto_worker" }, recursionLimit: this.recursionLimit, debug: this.verbose, });
 
     for await (const output of stream) this.renderOutput(output);
   }

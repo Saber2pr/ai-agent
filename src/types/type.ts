@@ -69,4 +69,8 @@ export interface AgentOptions {
    * only for graph agent
    */
   alwaysSystem?: boolean;
+  /**
+   * only for graph agent
+   */
+  recursionLimit?: number;
 }
