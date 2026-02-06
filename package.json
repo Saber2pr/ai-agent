@@ -25,13 +25,13 @@
     "@langchain/core": "^1.1.18",
     "@langchain/openai": "^1.2.4",
     "@modelcontextprotocol/sdk": "^1.25.3",
-    "@saber2pr/ts-context-mcp": "^0.0.6",
-    "js-tiktoken": "^1.0.21",
-    "langchain": "~0.3",
-    "openai": "^6.16.0",
+    "@saber2pr/ts-context-mcp": "^0.0.8",
     "diff": "^8.0.3",
     "glob": "^10.5.0",
-    "minimatch": "^10.0.1"
+    "js-tiktoken": "^1.0.21",
+    "langchain": "~0.3",
+    "minimatch": "^10.0.1",
+    "openai": "^6.16.0"
   },
   "devDependencies": {
     "@types/node": "^16.3.3",
