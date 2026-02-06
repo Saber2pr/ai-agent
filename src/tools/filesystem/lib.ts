@@ -1,10 +1,11 @@
-import fs from "fs/promises";
-import path from "path";
-import os from 'os';
 import { randomBytes } from 'crypto';
-import { diffLines, createTwoFilesPatch } from 'diff';
+import { createTwoFilesPatch } from 'diff';
+import fs from 'fs/promises';
 import { minimatch } from 'minimatch';
-import { normalizePath, expandHome } from './path-utils.js';
+import os from 'os';
+import path from 'path';
+
+import { expandHome, normalizePath } from './path-utils.js';
 import { isPathWithinAllowedDirectories } from './path-validation.js';
 
 // Global allowed directories - set by the main module

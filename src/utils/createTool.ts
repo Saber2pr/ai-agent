@@ -1,4 +1,4 @@
-import { ToolInfo } from "../types/type";
+import { ToolInfo } from '../types/type';
 
 export interface CreateToolOptions {
   name: string;

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 
 export const zodObjectToJsonSchema = (zodObject: z.ZodObject<any>, name: string) => {

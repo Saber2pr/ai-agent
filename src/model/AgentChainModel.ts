@@ -1,5 +1,5 @@
-import { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import { AIMessage, MessageFieldWithRole } from "@langchain/core/messages";
+import { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import { AIMessage, MessageFieldWithRole } from '@langchain/core/messages';
 
 interface AgentChainModelImpl {
   generateAgentChainResponse: (messages: MessageFieldWithRole[]) => Promise<string>;

@@ -1,7 +1,9 @@
-import { promises as fs, type Stats } from 'fs';
-import path from 'path';
+import { promises as fs, Stats, } from 'fs';
 import os from 'os';
+import path from 'path';
+
 import { normalizePath } from './path-utils.js';
+
 import type { Root } from '@modelcontextprotocol/sdk/types.js';
 
 /**
@@ -12,8 +14,8 @@ import type { Root } from '@modelcontextprotocol/sdk/types.js';
 async function parseRootUri(rootUri: string): Promise<string | null> {
   try {
     const rawPath = rootUri.startsWith('file://') ? rootUri.slice(7) : rootUri;
-    const expandedPath = rawPath.startsWith('~/') || rawPath === '~' 
-      ? path.join(os.homedir(), rawPath.slice(1)) 
+    const expandedPath = rawPath.startsWith('~/') || rawPath === '~'
+      ? path.join(os.homedir(), rawPath.slice(1))
       : rawPath;
     const absolutePath = path.resolve(expandedPath);
     const resolvedPath = await fs.realpath(absolutePath);
@@ -52,14 +54,14 @@ export async function getValidRootDirectories(
   requestedRoots: readonly Root[]
 ): Promise<string[]> {
   const validatedDirectories: string[] = [];
-  
+
   for (const requestedRoot of requestedRoots) {
     const resolvedPath = await parseRootUri(requestedRoot.uri);
     if (!resolvedPath) {
       console.error(formatDirectoryError(requestedRoot.uri, undefined, 'invalid path or inaccessible'));
       continue;
     }
-    
+
     try {
       const stats: Stats = await fs.stat(resolvedPath);
       if (stats.isDirectory()) {
@@ -71,6 +73,6 @@ export async function getValidRootDirectories(
       console.error(formatDirectoryError(resolvedPath, error));
     }
   }
-  
+
   return validatedDirectories;
 }

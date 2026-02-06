@@ -1,6 +1,4 @@
-import { BaseLanguageModelInterface } from "@langchain/core/language_models/base";
-import { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import { Client } from "@modelcontextprotocol/sdk/client/index";
+import { Client } from '@modelcontextprotocol/sdk/client/index';
 
 // --- 类型定义 ---
 export interface ApiConfig {
