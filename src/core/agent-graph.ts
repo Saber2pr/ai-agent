@@ -168,9 +168,21 @@ export default class McpGraphAgent {
 
     // 使用变量占位符 {extraPrompt} 避免内容中的 {} 引发模板解析错误
     const prompt = ChatPromptTemplate.fromMessages([
-      ["system", `你是一个代码审计专家。工作目录：${this.targetDir}。
-当前模式：{mode}。
-KPI进度：{doneCount}/{targetCount}。已审计文件：{auditedList}
+      ["system", `你是一个代码专家。工作目录：${this.targetDir}。
+
+# 当前进度状态
+- 审计模式: {mode}
+- 目标任务数: {targetCount}
+- 已完成数量: {doneCount}
+- 已审计文件列表: {auditedList}
+
+# 核心任务准则
+1. 目标导向：如果 {doneCount} >= {targetCount}，说明任务已达标。请直接输出总结，不要再调用任何工具。
+2. 避免死循环：不要反复尝试审计同一个文件或调用同样的工具。如果你发现某个文件修复失败，请尝试审计其他文件。
+3. 严格格式：
+    - 必须先在 <think> 标签内进行推理。
+    - 工具调用必须严格按照 Action: 名称 和 Arguments: {{JSON}} 的格式。
+    - 【重要】Arguments 中的 JSON 字符串，所有的换行符必须转义为 \\n，严禁出现物理换行符。
 
 # 附加指令
 {extraPrompt}`],
@@ -199,21 +211,26 @@ KPI进度：{doneCount}/{targetCount}。已审计文件：{auditedList}
     }
   }
 
-  async trackProgress(state: typeof AgentState.State) {
-    const lastAiMsg = state.messages[state.messages.length - 1] as AIMessage;
-    const newFiles: string[] = [];
-    if (lastAiMsg?.tool_calls) {
-      for (const tc of lastAiMsg.tool_calls) {
-        // 追踪涉及写、修复、生成审计报告的文件
-        const toolsToTrack = ["write_text_file", "apply_fix", "generate_review"];
-        if (toolsToTrack.includes(tc.name)) {
-          const file = tc.args.path || tc.args.filePath || tc.args.file;
-          if (file && typeof file === 'string') newFiles.push(file);
-        }
+// agent-graph.ts 中的 trackProgress 节点
+async trackProgress(state: typeof AgentState.State) {
+  // 获取最后一条 AI 消息（即发起工具调用的那条）
+  const lastAiMsg = state.messages[state.messages.length - 1] as AIMessage;
+  const newFiles: string[] = [];
+
+  if (lastAiMsg?.tool_calls?.length) {
+    for (const tc of lastAiMsg.tool_calls) {
+      // 这里的逻辑要宽容：只要 AI 尝试处理了这些文件，就计入进度
+      const file = tc.args.path || tc.args.filePath || tc.args.file;
+      if (file && typeof file === 'string') {
+        newFiles.push(file);
       }
     }
-    return { auditedFiles: newFiles };
   }
+
+  // 如果这一轮没有任何新文件被处理，且 AI 也没给最终回复，
+  // 我们需要防止它在下一轮条件判断中陷入死循环
+  return { auditedFiles: newFiles };
+}
 
   async createGraph() {
     const workflow = new StateGraph(AgentState)
@@ -223,10 +240,23 @@ KPI进度：{doneCount}/{targetCount}。已审计文件：{auditedList}
       .addEdge(START, "agent")
       .addConditionalEdges("agent", (state) => {
         const lastMsg = state.messages[state.messages.length - 1] as AIMessage;
+        
+        // 1. 如果 AI 想要调用工具，去 tools 节点
         if (lastMsg.tool_calls?.length) return "tools";
-        // 自动模式下且未达标时继续
-        if (state.mode === "auto" && state.auditedFiles.length < state.targetCount) return "agent";
+      
+        // 2. 如果是自动模式且未达标
+        if (state.mode === "auto") {
+          const isDone = state.auditedFiles.length >= state.targetCount;
+          // 如果还没达标，继续让 agent 思考下一步
+          if (!isDone) return "agent"; 
+        }
+      
+        // 3. 其他情况（达标了，或者对话模式 AI 给出了回复）一律结束
         return END;
+      }, {
+        tools: "tools",
+        agent: "agent",
+        [END]: END,
       })
       .addEdge("tools", "progress")
       .addEdge("progress", "agent");
