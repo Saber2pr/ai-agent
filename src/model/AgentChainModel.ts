@@ -2,7 +2,7 @@ import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { AIMessage, MessageFieldWithRole } from '@langchain/core/messages';
 
 interface AgentChainModelImpl {
-  generateAgentChainResponse: (messages: MessageFieldWithRole[]) => Promise<string>;
+  generateResponse: (messages: MessageFieldWithRole[]) => Promise<string>;
 }
 
 export abstract class AgentChainModel extends BaseChatModel implements AgentChainModelImpl {
@@ -15,12 +15,12 @@ export abstract class AgentChainModel extends BaseChatModel implements AgentChai
 
   constructor(fields?) { super(fields || {}); }
 
-  async generateAgentChainResponse(messages: MessageFieldWithRole[]) {
+  async generateResponse(messages: MessageFieldWithRole[]) {
     return ''
   }
 
   async _generate(messages) {
-    let text = await this.generateAgentChainResponse(messages);
+    let text = await this.generateResponse(messages);
     return { generations: [{ text, message: new AIMessage(text) }] };
   }
   _llmType() { return "my_private_llm"; }

@@ -52,4 +52,16 @@ export interface AgentOptions {
    * only for chain agent
    */
   verbose?: boolean
+  /**
+   * only for graph agent
+   */
+  baseURL?: string;
+  /**
+   * only for graph agent
+   */
+  apiKey?: string;
+  /**
+   * only for graph agent
+   */
+  modelName?: string;
 }
