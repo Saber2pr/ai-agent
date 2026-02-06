@@ -32,7 +32,7 @@ export default class McpChainAgent {
     this.extraTools = options?.tools || [];
     this.maxTokens = options?.maxTokens || 100000;
     this.apiConfig = options?.apiConfig;
-    this.maxIterations = options?.maxIterations || 10;
+    this.maxIterations = options?.maxIterations || 20;
     this.apiModel = options?.apiModel;
     this.verbose = options?.verbose || false;
 
