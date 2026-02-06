@@ -30,9 +30,9 @@ export default class McpChainAgent {
 
   constructor(options?: AgentOptions) {
     this.extraTools = options?.tools || [];
-    this.maxTokens = options?.maxTokens || 100000;
+    this.maxTokens = options?.maxTokens || 8000;
     this.apiConfig = options?.apiConfig;
-    this.maxIterations = options?.maxIterations || 20;
+    this.maxIterations = options?.maxIterations || 50;
     this.apiModel = options?.apiModel;
     this.verbose = options?.verbose || false;
 
@@ -96,7 +96,7 @@ export default class McpChainAgent {
     // maxTokenLimit 决定了当对话历史超过多少 Token 时触发“自动总结”
     this.memory = new ConversationSummaryBufferMemory({
       llm: model,
-      maxTokenLimit: 2000,
+      maxTokenLimit: this.maxTokens,
       memoryKey: "chat_history",
       returnMessages: true,
       // 必须添加下面这两行显式声明：
