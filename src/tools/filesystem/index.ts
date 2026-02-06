@@ -72,6 +72,7 @@ const SearchFilesArgsSchema = z.object({
 const GetFileInfoArgsSchema = z.object({
   path: z.string(),
 });
+console.log('🚀 ~ index ~ zodObjectToJsonSchema(ListDirectoryWithSizesArgsSchema,):', zodObjectToJsonSchema(ListDirectoryWithSizesArgsSchema, 'ListDirectoryWithSizesArgsSchema'));
 
 export const getFilesystemTools = (targetDir: string) => {
   setAllowedDirectories([targetDir]);

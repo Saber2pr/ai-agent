@@ -1,11 +1,12 @@
 import { DynamicStructuredTool } from "@langchain/core/tools";
-import { z } from "zod";
+import { ToolInfo } from "../types/type";
+import { jsonSchemaToZod } from "./jsonSchemaToZod";
 
-export function convertToLangChainTool(info: any) {
+export function convertToLangChainTool(info: ToolInfo) {
   return new DynamicStructuredTool({
     name: info.function.name,
     description: info.function.description || "",
-    schema: z.record(z.any()),
+    schema: jsonSchemaToZod(info.function.parameters),
     func: async (args) => {
       if (info._handler) return await info._handler(args);
       if (info._client && info._originalName) {
