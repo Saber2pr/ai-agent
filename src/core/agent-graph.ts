@@ -195,12 +195,12 @@ export default class McpGraphAgent {
     this.stopLoading(); // 停止加载动画
 
     const agentNode = output.agent;
-    
+
     // ✅ 打印工具执行结果（tools 节点的输出）
     const toolsNode = output.tools;
     if (toolsNode && toolsNode.messages) {
       const toolMessages = Array.isArray(toolsNode.messages) ? toolsNode.messages : [];
-      
+
       // 获取最近的 AI 消息以匹配 tool_call_id
       const lastAiMsg = agentNode?.messages?.[agentNode.messages.length - 1] as AIMessage;
       const toolCallMap = new Map<string, string>();
@@ -209,21 +209,21 @@ export default class McpGraphAgent {
           if (tc.id) toolCallMap.set(tc.id, tc.name);
         });
       }
-      
+
       toolMessages.forEach((msg: any) => {
         // ToolMessage 有 tool_call_id 字段
         const toolCallId = msg.tool_call_id || msg.id;
         if (toolCallId) {
           const toolName = toolCallMap.get(toolCallId) || msg.name || 'unknown';
-          const content = typeof msg.content === 'string' 
-            ? msg.content 
+          const content = typeof msg.content === 'string'
+            ? msg.content
             : JSON.stringify(msg.content);
-          
+
           // 如果内容太长，截断显示
-          const displayContent = content.length > 500 
-            ? content.substring(0, 500) + '...' 
+          const displayContent = content.length > 500
+            ? content.substring(0, 500) + '...'
             : content;
-          
+
           console.log(`✅ [工具结果] ${toolName}: ${displayContent}`);
         }
       });
@@ -378,22 +378,30 @@ export default class McpGraphAgent {
       .addNode("progress", (state) => this.trackProgress(state))
       .addEdge(START, "agent")
       .addConditionalEdges("agent", (state) => {
-        const lastMsg = state.messages[state.messages.length - 1] as AIMessage;
+        const messages = state.messages;
+        const lastMsg = messages[messages.length - 1] as AIMessage;
         const content = (lastMsg.content as string) || "";
 
-        // 1. 如果有工具调用，继续去 tools
-        if (lastMsg.tool_calls && lastMsg.tool_calls.length > 0) return "tools";
+        // 1. 如果 AI 想要调用工具，去 tools 节点
+        if (lastMsg.tool_calls && lastMsg.tool_calls.length > 0) {
+          return "tools";
+        }
 
-        // 2. 如果判定结束（AI 输出了 Final Answer 或已达标）
-        const isFinished = content.includes("Final Answer") ||
-          (state.mode === "auto" && state.auditedFiles.length >= state.targetCount);
+        // 2. 判定结束的条件：
+        // - 模式是 auto 且审计完成
+        // - 或者 AI 明确输出了结束语
+        // - 或者 AI 输出了普通内容且没有工具调用（针对问答模式）
+        const isAutoFinished = state.mode === "auto" && state.auditedFiles.length >= state.targetCount;
+        const isFinalAnswer = content.includes("Final Answer");
 
-        if (isFinished) {
-          this.printFinalSummary(state); // ✅ 调用刚才定义的方法
+        // ✅ 修复核心：如果 AI 只是在聊天（没有工具调用），直接结束，不要跳回 agent
+        if (isAutoFinished || isFinalAnswer || state.mode === "chat") {
+          this.printFinalSummary(state);
           return END;
         }
 
-        return "agent";
+        // 兜底：如果是在 auto 模式且还没干完活，才跳回 agent（通常不会走到这里）
+        return END;
       })
       .addEdge("tools", "progress")
       .addEdge("progress", "agent");
