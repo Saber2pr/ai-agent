@@ -6,19 +6,15 @@ import { convertToOpenAITool } from '@langchain/core/utils/function_calling';
 export interface AgentGraphLLMResponse {
   text: string;
   reasoning?: string;
-  chatId?: string;
-  // ✅ 新增：支持透传这些元数据
   token?: number;
   duration?: number;
 }
 
 export abstract class AgentGraphModel extends BaseChatModel {
   protected boundTools?: any[];
-  protected chatId?: string;
 
-  constructor(fields?: BaseChatModelParams & { chatId?: string }) {
+  constructor(fields?: BaseChatModelParams) {
     super(fields || {});
-    this.chatId = fields?.chatId;
   }
 
   bindTools(tools: any[]): any {
@@ -27,11 +23,11 @@ export abstract class AgentGraphModel extends BaseChatModel {
   }
 
   // 子类只需实现这个方法，返回 fetch 的配置或直接返回响应
-  abstract callApi(prompt: string, chatId?: string): Promise<AgentGraphLLMResponse>;
+  abstract callApi(prompt: string): Promise<AgentGraphLLMResponse>;
 
   async _generate(messages: BaseMessage[]): Promise<ChatResult> {
     const fullPrompt = this.serializeMessages(messages);
-    const response = await this.callApi(fullPrompt, this.chatId);
+    const response = await this.callApi(fullPrompt);
 
     let { text, reasoning, token, duration } = response;
 
@@ -58,13 +54,11 @@ export abstract class AgentGraphModel extends BaseChatModel {
             reasoning: reasoning || "",
             token: response.token,      // 👈 必须
             duration: response.duration, // 👈 必须
-            chatId: response.chatId
           },
           response_metadata: {
             reasoning: reasoning || "",
             token: response.token,      // 👈 McpGraphAgent 读取路径
             duration: response.duration,
-            chatId: response.chatId
           }
         })
       }]

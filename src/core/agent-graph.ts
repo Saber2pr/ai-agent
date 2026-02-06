@@ -65,9 +65,11 @@ export default class McpGraphAgent {
   private langchainTools: any[] = [];
   private stopLoadingFunc: (() => void) | null = null;
   private verbose: boolean;
+  private alwaysSystem: boolean;
   constructor(options: AgentOptions = {}) {
     this.options = options;
     this.verbose = options.verbose || false;
+    this.alwaysSystem = options.alwaysSystem || true;
     this.targetDir = options.targetDir || process.cwd();
     process.setMaxListeners(100);
 
@@ -268,14 +270,13 @@ export default class McpGraphAgent {
       ? state.auditedFiles.map(f => `\n  - ${f}`).join("")
       : "暂无";
 
-    // 检查最近的工具调用，防止重复调用
     const recentToolCalls = this.getRecentToolCalls(state.messages);
     const recentToolCallsStr = recentToolCalls.length > 0
       ? `\n\n⚠️ 最近调用的工具（避免重复调用相同工具和参数）：\n${recentToolCalls.map(tc => `  - ${tc.name}(${JSON.stringify(tc.args)})`).join("\n")}`
       : "";
 
-    const prompt = ChatPromptTemplate.fromMessages([
-      ["system", `你是一个代码专家。工作目录：${this.targetDir}。
+    // 1. 构建当前的系统提示词模板
+    const systemPromptTemplate = `你是一个代码专家。工作目录：${this.targetDir}。
 当前模式：{mode}
 进度：{doneCount}/{targetCount}
 已审计文件：{auditedList}
@@ -288,16 +289,33 @@ export default class McpGraphAgent {
 1. 一旦完成对一个文件的修改（apply_fix），请立即调用 generate_review 总结该文件的变动。
 2. 避免陷入在同一个文件上的无限循环尝试。
 3. 不要重复调用相同的工具和参数，如果工具已经返回结果，请基于结果继续工作而不是再次调用。{recentToolCalls}
-{extraPrompt}`],
+{extraPrompt}`;
+
+    // 2. 核心逻辑：处理消息上下文
+    let inputMessages: BaseMessage[];
+
+    // ✅ 检查 options 中的 alwaysSystem 参数 (默认为 true 或根据你的需求设置)
+    // 如果不希望每次都携带（即只在首轮携带），则过滤掉历史消息里的 SystemMessage
+    if (this.options.alwaysSystem === false) {
+      inputMessages = state.messages.filter(msg => msg._getType() !== "system");
+    } else {
+      // 默认模式：保持干净，由 PromptTemplate 重新生成最新的 System 状态
+      inputMessages = state.messages.filter(msg => msg._getType() !== "system");
+    }
+
+    const prompt = ChatPromptTemplate.fromMessages([
+      ["system", systemPromptTemplate],
       new MessagesPlaceholder("messages"),
     ]);
 
     this.startLoading("AI 正在分析并思考中");
 
+
+
     try {
       const chain = prompt.pipe(this.model);
       const response = await chain.invoke({
-        messages: state.messages,
+        messages: inputMessages, // ✅ 使用处理后的消息列表
         mode: state.mode,
         targetCount: state.targetCount,
         doneCount: state.auditedFiles.length,
@@ -308,7 +326,6 @@ export default class McpGraphAgent {
 
       this.stopLoading();
 
-      // ✅ 提取并转换为数字类型
       const meta = (response as any).response_metadata || {};
       const currentToken = Number(meta.token) || 0;
       const currentDuration = Number(meta.duration) || 0;

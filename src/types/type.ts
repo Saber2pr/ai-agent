@@ -65,4 +65,8 @@ export interface AgentOptions {
    * only for graph agent
    */
   modelName?: string;
+  /**
+   * only for graph agent
+   */
+  alwaysSystem?: boolean;
 }

@@ -4,6 +4,9 @@ import { z } from 'zod';
 export interface CreateToolOptions {
   name: string;
   description: string;
+  /**
+   * zod@3.23.8
+   */
   parameters: z.ZodObject<any>;
   handler: (args: any) => Promise<string>;
 }
