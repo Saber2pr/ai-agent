@@ -48,7 +48,7 @@ npm run build
 Best for quick scripts and simple chat interactions. It uses a straightforward message-loop logic.
 
 ```javascript
-const McpAgent = require("./lib/agent").default;
+import McpAgent from "@saber2pr/ai-agent";
 
 const agent = new McpAgent({
   targetDir: "/path/to/project"
@@ -63,10 +63,10 @@ await agent.chat("Analyze the directory structure.");
 Best for complex tasks like "Audit the whole project and fix bugs." It supports autonomous tool usage.
 
 ```javascript
-const McpAgent = require("./lib/agent-chain").default;
-const { MyPrivateLLM } = require("./your-custom-llm");
+import { McpChainAgent } from "@saber2pr/ai-agent";
+import { MyPrivateLLM } from "./your-custom-llm";
 
-const agent = new McpAgent({
+const agent = new McpChainAgent({
   apiModel: new MyPrivateLLM(), // Inject custom LLM
   maxIterations: 15,
   targetDir: "/path/to/project"
@@ -85,7 +85,7 @@ await agent.chat("Scan for hardcoded colors and submit a review report.");
 For LangChain mode, extend `AgentChainModel` which provides a simplified interface for integrating custom LLMs:
 
 ```javascript
-const { AgentChainModel } = require("@saber2pr/ai-agent");
+import { AgentChainModel } from "@saber2pr/ai-agent";
 
 class MyPrivateLLM extends AgentChainModel {
   constructor(fields) { 
@@ -175,6 +175,8 @@ The toolkit provides a comprehensive set of built-in tools organized into two ca
 You can pass structured rules via the `extraSystemPrompt`:
 
 ```javascript
+import McpAgent from "@saber2pr/ai-agent";
+
 const agent = new McpAgent({
   extraSystemPrompt: {
     role: "Code Auditor",
