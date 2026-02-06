@@ -84,10 +84,12 @@ export default class McpChainAgent {
     // maxTokenLimit 决定了当对话历史超过多少 Token 时触发“自动总结”
     this.memory = new ConversationSummaryBufferMemory({
       llm: model,
-      maxTokenLimit: 2000, // 超过 2k token 自动进行摘要压缩
+      maxTokenLimit: 2000,
       memoryKey: "chat_history",
       returnMessages: true,
-      outputKey: "output", // 必须指定，以便记忆助手区分输入输出
+      // 必须添加下面这两行显式声明：
+      inputKey: "input",    // 对应 invoke 里的 input 字段
+      outputKey: "output",  // 对应 Agent 输出的字段
     });
 
     const langchainTools = this.allTools.map(t => new DynamicStructuredTool({
