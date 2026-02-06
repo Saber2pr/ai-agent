@@ -22,7 +22,6 @@ export default class McpAgent {
   private maxTokens: number;
   private apiConfig: ApiConfig
   private targetDir: string;
-
   constructor(options?: AgentOptions) {
     this.targetDir = options?.targetDir || process.cwd();
     this.extraTools = options?.tools || []; // 接收外部传入的工具

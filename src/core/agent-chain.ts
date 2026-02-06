@@ -25,6 +25,7 @@ export default class McpChainAgent {
   private memory?: ConversationSummaryBufferMemory;
   private systemPrompt: string;
   private runningTokenCounter: number = 0;
+  private verbose: boolean;
 
   constructor(options?: AgentOptions) {
     this.extraTools = options?.tools || [];
@@ -32,6 +33,7 @@ export default class McpChainAgent {
     this.apiConfig = options?.apiConfig;
     this.maxIterations = options?.maxIterations || 20;
     this.apiModel = options?.apiModel;
+    this.verbose = options?.verbose || false;
 
     const baseSystemPrompt = `你是一个专业的代码架构师。
 你的目标是理解并分析用户项目，请务必遵循以下工作流：
@@ -138,7 +140,7 @@ Thought: {agent_scratchpad}`);
       agent,
       tools: langchainTools,
       memory: this.memory, // 挂载内存模块
-      verbose: false,
+      verbose: this.verbose,
       handleParsingErrors: true,
       maxIterations: this.maxIterations
     });

@@ -33,12 +33,23 @@ export interface McpConfig {
 
 export interface AgentOptions {
   targetDir?: string;
-  /** 外部传入的内置工具列表，不传则使用默认的 registerBuiltinTools */
   tools?: ToolInfo[];
   extraSystemPrompt?: any;
   maxTokens?: number;
+  /**
+   * only for chain agent
+   */
   apiConfig?: ApiConfig
+  /**
+   * only for chain agent
+   */
   apiModel?: BaseChatModel
+  /**
+   * only for chain agent
+   */
   maxIterations?: number
+  /**
+   * only for chain agent
+   */
   verbose?: boolean
 }
