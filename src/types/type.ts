@@ -1,3 +1,4 @@
+import { BaseLanguageModelInterface } from "@langchain/core/language_models/base";
 import { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { Client } from "@modelcontextprotocol/sdk/client/index";
 
@@ -42,8 +43,9 @@ export interface AgentOptions {
   apiConfig?: ApiConfig
   /**
    * only for chain agent
+   * extends BaseChatModel
    */
-  apiModel?: BaseChatModel
+  apiModel?: any
   /**
    * only for chain agent
    */

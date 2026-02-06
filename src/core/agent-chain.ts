@@ -5,13 +5,14 @@ import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { PromptTemplate } from '@langchain/core/prompts';
 import { DynamicStructuredTool } from '@langchain/core/tools';
 import { ChatOpenAI } from '@langchain/openai';
-import { ConversationSummaryBufferMemory } from "langchain/memory";
+import { ChatMessageHistory, ConversationSummaryBufferMemory } from "langchain/memory";
 import * as readline from 'readline';
 
 import { CONFIG_FILE } from '../config/config';
 import { AgentOptions, ApiConfig, ToolInfo } from '../types/type';
 import { jsonSchemaToZod } from '../utils/jsonSchemaToZod';
 import { createDefaultBuiltinTools } from '../tools/builtin';
+import { BaseLanguageModelInterface } from '@langchain/core/language_models/base';
 
 export default class McpChainAgent {
   private allTools: ToolInfo[] = [];
@@ -21,7 +22,7 @@ export default class McpChainAgent {
   private executor?: AgentExecutor;
   private apiConfig: ApiConfig;
   private maxIterations: number;
-  private apiModel?: BaseChatModel;
+  private apiModel?: BaseLanguageModelInterface;
   private memory?: ConversationSummaryBufferMemory;
   private systemPrompt: string;
   private runningTokenCounter: number = 0;
@@ -31,7 +32,7 @@ export default class McpChainAgent {
     this.extraTools = options?.tools || [];
     this.maxTokens = options?.maxTokens || 100000;
     this.apiConfig = options?.apiConfig;
-    this.maxIterations = options?.maxIterations || 20;
+    this.maxIterations = options?.maxIterations || 10;
     this.apiModel = options?.apiModel;
     this.verbose = options?.verbose || false;
 
@@ -79,7 +80,7 @@ export default class McpChainAgent {
   async init() {
     if (this.executor) return;
 
-    let model: BaseChatModel;
+    let model: BaseLanguageModelInterface;
     if (this.apiModel) {
       model = this.apiModel;
     } else {
@@ -101,6 +102,7 @@ export default class McpChainAgent {
       // 必须添加下面这两行显式声明：
       inputKey: "input",    // 对应 invoke 里的 input 字段
       outputKey: "output",  // 对应 Agent 输出的字段
+      chatHistory: new ChatMessageHistory(), // 👈 显式指定 history 实例
     });
 
     const langchainTools = this.allTools.map(t => new DynamicStructuredTool({
@@ -110,29 +112,33 @@ export default class McpChainAgent {
       func: async (args) => await t._handler(args),
     }));
 
-    // 2. 构造支持 Memory 的 Prompt
     const prompt = PromptTemplate.fromTemplate(`{system_prompt}
 
-### 历史记录摘要及近期对话：
-{chat_history}
-
-### 可用工具：
+### 🛠 可用工具：
 {tools}
 
-工具名称列表: [{tool_names}]
+### 🛠 工具名称：
+[{tool_names}]
 
-### 交互协议：
-Thought: [你的中文分析思路]
+### 📝 历史记录：
+{chat_history}
+
+### ⚠️ 回复规范（严格遵守）：
+1. 首先输出 **Thought:**，用中文详细说明你的分析思路。
+2. 接着输出一个 **JSON Action 代码块**。
+
+示例格式：
+Thought: 正在查看目录。
 \`\`\`json
 {{
-  "action": "工具名称",
-  "action_input": {{ "参数名": "参数值" }}
+  "action": "directory_tree",
+  "action_input": {{}}
 }}
 \`\`\`
 
 Begin!
 Question: {input}
-Thought: {agent_scratchpad}`);
+{agent_scratchpad}`); // 👈 强制以 Thought: 开头，解决断更问题
 
     const agent = await createStructuredChatAgent({ llm: model, tools: langchainTools, prompt });
 
@@ -141,8 +147,11 @@ Thought: {agent_scratchpad}`);
       tools: langchainTools,
       memory: this.memory, // 挂载内存模块
       verbose: this.verbose,
-      handleParsingErrors: true,
-      maxIterations: this.maxIterations
+      maxIterations: this.maxIterations,
+      handleParsingErrors: (e) => {
+        // 简化报错，不要再给 AI 错误的 JSON 示例
+        return `格式不正确。请确保你输出了一个正确的 Markdown JSON 代码块，例如：\n\`\`\`json\n{ "action": "...", "action_input": { ... } }\n\`\`\``;
+      },
     });
   }
 
@@ -162,9 +171,14 @@ Thought: {agent_scratchpad}`);
       }, {
         callbacks: [{
           handleAgentAction: (action) => {
-            const thought = action.log.split(/```json|\{/)[0].replace(/Thought:/i, "").trim();
-            if (thought && !thought.startsWith('{')) {
-              console.log(`\n💭 [思考]: ${thought.split('\n')[0]}`);
+            const rawLog = action.log || "";
+            // 兼容 Thought: Thought: [内容]
+            let thought = rawLog.split(/```json|\{/)[0]
+              .replace(/Thought:/gi, "") // 全局替换掉所有 Thought: 标签
+              .trim();
+
+            if (thought) {
+              console.log(`\n💭 [思考]: ${thought}`);
             }
           }
         }]
