@@ -1,11 +1,11 @@
 import { z } from 'zod';
 import fs from "fs/promises";
 import path from "path";
-import { zodToJsonSchema } from 'zod-to-json-schema';
 
 import { createTool } from '../../utils/createTool';
 import { minimatch } from "minimatch";
 import { applyFileEdits, formatSize, getFileStats, headFile, readFileContent, searchFilesWithValidation, setAllowedDirectories, tailFile, validatePath, writeFileContent } from './lib';
+import { zodObjectToJsonSchema } from '../../utils/jsonSchemaToZod';
 
 // Schema definitions
 const ReadTextFileArgsSchema = z.object({
@@ -70,7 +70,6 @@ const GetFileInfoArgsSchema = z.object({
   path: z.string(),
 });
 
-
 export const getFilesystemTools = (targetDir: string) => {
   setAllowedDirectories([targetDir]);
 
@@ -102,7 +101,7 @@ export const getFilesystemTools = (targetDir: string) => {
       "the contents of a single file. Use the 'head' parameter to read only " +
       "the first N lines of a file, or the 'tail' parameter to read only " +
       "the last N lines of a file. Operates on the file as text regardless of extension.",
-    parameters: zodToJsonSchema(ReadTextFileArgsSchema, 'ReadTextFileArgsSchema'),
+    parameters: zodObjectToJsonSchema(ReadTextFileArgsSchema, 'ReadTextFileArgsSchema'),
     validateParams: ["path"],
     handler: readTextFileHandler
   })
@@ -114,7 +113,7 @@ export const getFilesystemTools = (targetDir: string) => {
       "or compare multiple files. Each file's content is returned with its " +
       "path as a reference. Failed reads for individual files won't stop " +
       "the entire operation. Only works within allowed directories.",
-    parameters: zodToJsonSchema(ReadMultipleFilesArgsSchema, 'ReadMultipleFilesArgsSchema'),
+    parameters: zodObjectToJsonSchema(ReadMultipleFilesArgsSchema, 'ReadMultipleFilesArgsSchema'),
     validateParams: ["paths"],
     handler: async (args: z.infer<typeof ReadMultipleFilesArgsSchema>) => {
       const results = await Promise.all(
@@ -139,7 +138,7 @@ export const getFilesystemTools = (targetDir: string) => {
     description: "Create a new file or completely overwrite an existing file with new content. " +
       "Use with caution as it will overwrite existing files without warning. " +
       "Handles text content with proper encoding. Only works within allowed directories.",
-    parameters: zodToJsonSchema(WriteFileArgsSchema, 'WriteFileArgsSchema'),
+    parameters: zodObjectToJsonSchema(WriteFileArgsSchema, 'WriteFileArgsSchema'),
     validateParams: ["path", "content"],
     handler: async (args: z.infer<typeof WriteFileArgsSchema>) => {
       const validPath = await validatePath(targetDir, args.path);
@@ -154,7 +153,7 @@ export const getFilesystemTools = (targetDir: string) => {
     description: "Make line-based edits to a text file. Each edit replaces exact line sequences " +
       "with new content. Returns a git-style diff showing the changes made. " +
       "Only works within allowed directories.",
-    parameters: zodToJsonSchema(EditFileArgsSchema, 'EditFileArgsSchema'),
+    parameters: zodObjectToJsonSchema(EditFileArgsSchema, 'EditFileArgsSchema'),
     validateParams: ["path", "edits"],
     handler: async (args: z.infer<typeof EditFileArgsSchema>) => {
       const validPath = await validatePath(targetDir, args.path);
@@ -169,7 +168,7 @@ export const getFilesystemTools = (targetDir: string) => {
       "nested directories in one operation. If the directory already exists, " +
       "this operation will succeed silently. Perfect for setting up directory " +
       "structures for projects or ensuring required paths exist. Only works within allowed directories.",
-    parameters: zodToJsonSchema(CreateDirectoryArgsSchema, 'CreateDirectoryArgsSchema'),
+    parameters: zodObjectToJsonSchema(CreateDirectoryArgsSchema, 'CreateDirectoryArgsSchema'),
     validateParams: ["path"],
     handler: async (args) => {
       const validPath = await validatePath(targetDir, args.path);
@@ -185,7 +184,7 @@ export const getFilesystemTools = (targetDir: string) => {
       "Results clearly distinguish between files and directories with [FILE] and [DIR] " +
       "prefixes. This tool is essential for understanding directory structure and " +
       "finding specific files within a directory. Only works within allowed directories.",
-    parameters: zodToJsonSchema(ListDirectoryArgsSchema, 'ListDirectoryArgsSchema'),
+    parameters: zodObjectToJsonSchema(ListDirectoryArgsSchema, 'ListDirectoryArgsSchema'),
     validateParams: ["path"],
     handler: async (args) => {
       const validPath = await validatePath(targetDir, args.path);
@@ -203,7 +202,7 @@ export const getFilesystemTools = (targetDir: string) => {
       "Results clearly distinguish between files and directories with [FILE] and [DIR] " +
       "prefixes. This tool is useful for understanding directory structure and " +
       "finding specific files within a directory. Only works within allowed directories.",
-    parameters: zodToJsonSchema(ListDirectoryWithSizesArgsSchema, 'ListDirectoryWithSizesArgsSchema'),
+    parameters: zodObjectToJsonSchema(ListDirectoryWithSizesArgsSchema, 'ListDirectoryWithSizesArgsSchema'),
     validateParams: ["path"],
     handler: async (args: z.infer<typeof ListDirectoryWithSizesArgsSchema>) => {
       const validPath = await validatePath(targetDir, args.path);
@@ -269,7 +268,7 @@ export const getFilesystemTools = (targetDir: string) => {
       "Each entry includes 'name', 'type' (file/directory), and 'children' for directories. " +
       "Files have no children array, while directories always have a children array (which may be empty). " +
       "The output is formatted with 2-space indentation for readability. Only works within allowed directories.",
-    parameters: zodToJsonSchema(DirectoryTreeArgsSchema, 'DirectoryTreeArgsSchema'),
+    parameters: zodObjectToJsonSchema(DirectoryTreeArgsSchema, 'DirectoryTreeArgsSchema'),
     validateParams: ["path"],
     handler: async (args: z.infer<typeof DirectoryTreeArgsSchema>) => {
       interface TreeEntry {
@@ -327,7 +326,7 @@ export const getFilesystemTools = (targetDir: string) => {
       "and rename them in a single operation. If the destination exists, the " +
       "operation will fail. Works across different directories and can be used " +
       "for simple renaming within the same directory. Both source and destination must be within allowed directories.",
-    parameters: zodToJsonSchema(MoveFileArgsSchema, 'MoveFileArgsSchema'),
+    parameters: zodObjectToJsonSchema(MoveFileArgsSchema, 'MoveFileArgsSchema'),
     validateParams: ["source", "destination"],
     handler: async (args: z.infer<typeof MoveFileArgsSchema>) => {
       const validSourcePath = await validatePath(targetDir, args.source);
@@ -342,7 +341,7 @@ export const getFilesystemTools = (targetDir: string) => {
     name: "search_files",
     description: "Search for files matching a specific pattern in a specified path. " +
       "Returns a list of files that match the pattern. Only works within allowed directories.",
-    parameters: zodToJsonSchema(SearchFilesArgsSchema, 'SearchFilesArgsSchema'),
+    parameters: zodObjectToJsonSchema(SearchFilesArgsSchema, 'SearchFilesArgsSchema'),
     validateParams: ["path", "pattern"],
     handler: async (args: z.infer<typeof SearchFilesArgsSchema>) => {
       const validPath = await validatePath(targetDir, args.path);
@@ -356,7 +355,7 @@ export const getFilesystemTools = (targetDir: string) => {
     name: "get_file_info",
     description: "Get detailed information about a file, including its size, last modified time, and type. " +
       "Only works within allowed directories.",
-    parameters: zodToJsonSchema(GetFileInfoArgsSchema, 'GetFileInfoArgsSchema'),
+    parameters: zodObjectToJsonSchema(GetFileInfoArgsSchema, 'GetFileInfoArgsSchema'),
     validateParams: ["path"],
     handler: async (args: z.infer<typeof GetFileInfoArgsSchema>) => {
       const validPath = await validatePath(targetDir, args.path);

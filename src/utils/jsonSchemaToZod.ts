@@ -1,4 +1,9 @@
 import { z } from "zod";
+import { zodToJsonSchema } from 'zod-to-json-schema';
+
+export const zodObjectToJsonSchema = (zodObject: z.ZodObject<any>, name: string) => {
+  return zodToJsonSchema(zodObject, name)?.definitions?.[name] || zodObject;
+}
 
 export function jsonSchemaToZod(parameters: any): z.ZodObject<any> {
   if (!parameters || typeof parameters !== 'object') {
