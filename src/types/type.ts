@@ -1,4 +1,5 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index';
+import { z } from 'zod';
 
 // --- 类型定义 ---
 export interface ApiConfig {
@@ -12,7 +13,7 @@ export interface ToolInfo {
   function: {
     name: string;
     description?: string;
-    parameters: any;
+    parameters: z.ZodObject<any>;
   };
   _handler?: (args: any) => Promise<any>; // 内置工具处理器
   _client?: Client; // 外部 MCP 客户端

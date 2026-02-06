@@ -12,7 +12,6 @@ import { ChatOpenAI } from '@langchain/openai';
 import { CONFIG_FILE } from '../config/config';
 import { createDefaultBuiltinTools } from '../tools/builtin';
 import { AgentOptions, ApiConfig, ToolInfo } from '../types/type';
-import { jsonSchemaToZod } from '../utils/jsonSchemaToZod';
 
 export default class McpChainAgent {
   private allTools: ToolInfo[] = [];
@@ -108,7 +107,7 @@ export default class McpChainAgent {
     const langchainTools = this.allTools.map(t => new DynamicStructuredTool({
       name: t.function.name,
       description: t.function.description || "",
-      schema: jsonSchemaToZod(t.function.parameters),
+      schema: (t.function.parameters),
       func: async (args) => await t._handler(args),
     }));
 

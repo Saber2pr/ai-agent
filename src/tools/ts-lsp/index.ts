@@ -1,6 +1,7 @@
 import { PromptEngine } from '@saber2pr/ts-context-mcp';
 
 import { createTool } from '../../utils/createTool';
+import { z } from 'zod';
 
 export const getTsLspTools = (targetDir: string) => {
   const engine = new PromptEngine(targetDir);
@@ -8,7 +9,7 @@ export const getTsLspTools = (targetDir: string) => {
     createTool({
       name: "get_repo_map",
       description: "获取项目全局文件结构及导出清单，用于快速定位代码",
-      parameters: { type: "object", properties: {} },
+      parameters: z.object({}),
       handler: async () => {
         engine.refresh();
         return engine.getRepoMap();
@@ -17,15 +18,13 @@ export const getTsLspTools = (targetDir: string) => {
     createTool({
       name: "analyze_deps",
       description: "分析指定文件的依赖关系，支持 tsconfig 路径别名解析",
-      parameters: { type: "object", properties: { filePath: { type: "string", description: "文件相对路径" } } },
-      validateParams: ["filePath"],
-      handler: async ({ filePath }: any) => engine.getDeps(filePath),
+      parameters: z.object({ filePath: z.string().describe("文件相对路径") }),
+      handler: async ({ filePath }) => engine.getDeps(filePath),
     }),
     createTool({
       name: "read_skeleton",
       description: "提取文件的结构定义（接口、类、方法签名），忽略具体实现以节省 Token",
-      parameters: { type: "object", properties: { filePath: { type: "string", description: "文件相对路径" } } },
-      validateParams: ["filePath"],
+      parameters: z.object({ filePath: z.string().describe("文件相对路径") }),
       handler: async (args) => {
         const pathArg = args?.filePath;
         if (typeof pathArg !== "string" || pathArg.trim() === "") {
@@ -43,9 +42,8 @@ export const getTsLspTools = (targetDir: string) => {
     createTool({
       name: "get_method_body",
       description: "获取指定文件内某个方法或函数的完整实现代码",
-      parameters: { type: "object", properties: { filePath: { type: "string", description: "文件相对路径" }, methodName: { type: "string", description: "方法名或函数名" } } },
-      validateParams: ["filePath", 'methodName'],
-      handler: async ({ filePath, methodName }: any) => {
+      parameters: z.object({ filePath: z.string().describe("文件相对路径"), methodName: z.string().describe("方法名或函数名") }),
+      handler: async ({ filePath, methodName }) => {
         return engine.getMethodImplementation(filePath, methodName);
       },
     }),

@@ -11,6 +11,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { CONFIG_FILE } from '../config/config';
 import { createDefaultBuiltinTools } from '../tools/builtin';
 import { AgentOptions, ApiConfig, McpConfig, ToolInfo } from '../types/type';
+import { jsonSchemaToZod } from '../utils/jsonSchemaToZod';
 
 export default class McpAgent {
   private openai!: OpenAI;
@@ -192,12 +193,12 @@ export default class McpAgent {
         const { tools } = await client.listTools();
 
         this.allTools.push(
-          ...tools.map((t) => ({
+          ...tools.map((t): ToolInfo => ({
             type: "function" as const,
             function: {
               name: `${name}__${t.name}`,
               description: t.description,
-              parameters: t.inputSchema,
+              parameters: jsonSchemaToZod(t.inputSchema),
             },
             _originalName: t.name,
             _client: client,

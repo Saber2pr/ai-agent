@@ -1,11 +1,11 @@
 import { ToolInfo } from '../types/type';
+import { z } from 'zod';
 
 export interface CreateToolOptions {
   name: string;
   description: string;
-  parameters: any;
+  parameters: z.ZodObject<any>;
   handler: (args: any) => Promise<string>;
-  validateParams?: string[]
 }
 
 export function createTool(options: CreateToolOptions): ToolInfo {
@@ -24,16 +24,6 @@ export function createTool(options: CreateToolOptions): ToolInfo {
           args = JSON.parse(input);
         } catch {
           args = input
-        }
-      }
-
-      if (options.validateParams?.length > 0) {
-        for (const arg in args) {
-          if (options.validateParams.includes(arg)) {
-            if (typeof args[arg] === 'undefined') {
-              return `Error: 参数 '${arg}' 缺失`;
-            }
-          }
         }
       }
 

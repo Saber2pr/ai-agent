@@ -1,9 +1,4 @@
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
-
-export const zodObjectToJsonSchema = (zodObject: z.ZodObject<any>, name: string) => {
-  return zodToJsonSchema(zodObject, name)?.definitions?.[name] || zodObject;
-}
 
 export function jsonSchemaToZod(parameters: any): z.ZodObject<any> {
   if (!parameters || typeof parameters !== 'object') {
@@ -54,9 +49,9 @@ export function jsonSchemaToZod(parameters: any): z.ZodObject<any> {
 
     // 处理必填项
     const isRequired = parameters.required?.includes(key);
-    obj[key] = isRequired ? schema : schema.optional();
+    obj[key] = isRequired ? schema : schema.nullable()
   }
 
   // 使用 passthrough 或 loose 以增加容错性
-  return z.object(obj).passthrough();
+  return z.object(obj)
 }
