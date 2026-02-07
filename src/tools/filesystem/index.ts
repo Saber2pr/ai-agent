@@ -5,8 +5,8 @@ import { z } from 'zod';
 
 import { createTool } from '../../utils/createTool';
 import {
-  applyFileEdits, formatSize, getFileStats, headFile, readFileContent, searchFilesWithValidation,
-  setAllowedDirectories, tailFile, validatePath, writeFileContent
+    applyFileEdits, formatSize, getFileStats, headFile, readFileContent, searchFilesWithValidation,
+    setAllowedDirectories, tailFile, validatePath, writeFileContent
 } from './lib';
 
 // Schema definitions

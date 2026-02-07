@@ -4,6 +4,7 @@ import OpenAI from 'openai';
 import os from 'os';
 import path from 'path';
 import * as readline from 'readline';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -11,7 +12,6 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { CONFIG_FILE } from '../config/config';
 import { createDefaultBuiltinTools } from '../tools/builtin';
 import { AgentOptions, ApiConfig, McpConfig, ToolInfo } from '../types/type';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import { jsonSchemaToZod } from '../utils/jsonSchemaToZod';
 
 export default class McpAgent {
