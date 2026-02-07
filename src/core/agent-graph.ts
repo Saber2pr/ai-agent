@@ -1,17 +1,20 @@
-import { ChatOpenAI } from "@langchain/openai";
-import { AIMessage, BaseMessage, HumanMessage } from "@langchain/core/messages";
-import { StateGraph, END, START, Annotation, MemorySaver } from "@langchain/langgraph";
-import { ToolNode } from "@langchain/langgraph/prebuilt";
-import { ChatPromptTemplate, MessagesPlaceholder } from "@langchain/core/prompts";
-import readline from "readline";
-import fs from "fs";
-import path from "path";
-import os from "os";
-import { EventEmitter } from "events";
+import { EventEmitter } from 'events';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import readline from 'readline';
 
-import { createDefaultBuiltinTools } from "../tools/builtin";
-import { AgentOptions } from "../types/type";
-import { convertToLangChainTool } from "../utils/convertToLangChainTool";
+import { AIMessage, BaseMessage, HumanMessage } from '@langchain/core/messages';
+import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
+import { RunnableLike } from '@langchain/core/runnables';
+import { Annotation, END, MemorySaver, START, StateGraph } from '@langchain/langgraph';
+import { ToolNode } from '@langchain/langgraph/prebuilt';
+import { ChatOpenAI } from '@langchain/openai';
+
+import { AgentGraphModel } from '../model/AgentGraphModel';
+import { createDefaultBuiltinTools } from '../tools/builtin';
+import { ApiConfig, GraphAgentOptions } from '../types/type';
+import { convertToLangChainTool } from '../utils/convertToLangChainTool';
 
 export const CONFIG_FILE = path.join(os.homedir(), ".saber2pr-agent.json");
 
@@ -57,22 +60,28 @@ const AgentState = Annotation.Root({
 });
 
 export default class McpGraphAgent {
-  private model: any;
+  private model: RunnableLike;
   private toolNode: ToolNode;
   private targetDir: string;
-  private options: AgentOptions;
+  private options: GraphAgentOptions;
   private checkpointer = new MemorySaver();
   private langchainTools: any[] = [];
   private stopLoadingFunc: (() => void) | null = null;
   private verbose: boolean;
   private alwaysSystem: boolean;
   private recursionLimit: number;
-  constructor(options: AgentOptions = {}) {
+  private apiConfig: ApiConfig;
+  private maxTargetCount: number;
+  private maxTokens: number;
+  constructor(options: GraphAgentOptions = {}) {
     this.options = options;
     this.verbose = options.verbose || false;
     this.alwaysSystem = options.alwaysSystem || true;
     this.targetDir = options.targetDir || process.cwd();
-    this.recursionLimit = options.recursionLimit || 200;
+    this.recursionLimit = options.recursionLimit || 80;
+    this.apiConfig = options.apiConfig;
+    this.maxTargetCount = options.maxTargetCount || 4;
+    this.maxTokens = options.maxTokens || 8000;
     process.setMaxListeners(100);
 
     // ✅ 修复 AbortSignal 监听器数量警告
@@ -125,7 +134,7 @@ export default class McpGraphAgent {
 
   private async getModel() {
     if (this.model) return this.model;
-    let modelInstance = this.options.apiModel;
+    let modelInstance: RunnableLike | AgentGraphModel = this.options.apiModel;
     if (!modelInstance) {
       const config = await this.askForConfig();
       modelInstance = new ChatOpenAI({
@@ -133,14 +142,19 @@ export default class McpGraphAgent {
         configuration: { baseURL: config.baseURL },
         modelName: config.model,
         temperature: 0,
+        maxTokens: this.maxTokens,
       });
     }
-    // 绑定工具，使模型具备调用能力
-    this.model = modelInstance.bindTools(this.langchainTools);
+    if (modelInstance instanceof AgentGraphModel) {
+      this.model = modelInstance.bindTools(this.langchainTools);
+    } else {
+      this.model = modelInstance;
+    }
     return this.model;
   }
 
   private async askForConfig() {
+    if (this.apiConfig) return this.apiConfig;
     let config: any = {};
     if (fs.existsSync(CONFIG_FILE)) {
       try { config = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf-8")); } catch (e) { }
@@ -163,7 +177,7 @@ export default class McpGraphAgent {
     const stream = await app.stream({
       messages: [new HumanMessage(query)],
       mode: "auto",
-      targetCount: 4,
+      targetCount: this.maxTargetCount,
     }, { configurable: { thread_id: "auto_worker" }, recursionLimit: this.recursionLimit, debug: this.verbose, });
 
     for await (const output of stream) this.renderOutput(output);
@@ -186,7 +200,7 @@ export default class McpGraphAgent {
         if (input.toLowerCase() === "exit") { rl.close(); return; }
         const stream = await app.stream(
           { messages: [new HumanMessage(input)], mode: "chat" },
-          { configurable: { thread_id: "session" }, recursionLimit: 50 }
+          { configurable: { thread_id: "session" }, recursionLimit: this.recursionLimit, debug: this.verbose, }
         );
         for await (const output of stream) this.renderOutput(output);
         ask();
@@ -399,6 +413,14 @@ export default class McpGraphAgent {
         const messages = state.messages;
         const lastMsg = messages[messages.length - 1] as AIMessage;
         const content = (lastMsg.content as string) || "";
+
+        // 🛑 新增：全局 Token 熔断保护
+        // 如果已消耗 Token 超过了 options 中设置的 maxTokens (假设是总限额)
+        if (this.options.maxTokens && state.tokenUsage.total >= this.options.maxTokens) {
+          console.warn("⚠️ [警告] 已达到最大 Token 限制，强制结束任务。");
+          this.printFinalSummary(state);
+          return END;
+        }
 
         // 1. 如果 AI 想要调用工具，去 tools 节点
         if (lastMsg.tool_calls && lastMsg.tool_calls.length > 0) {

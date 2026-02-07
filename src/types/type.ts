@@ -1,5 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index';
 import { z } from 'zod';
+import { AgentChainModel } from '../model/AgentChainModel';
+import { AgentGraphModel } from '../model/AgentGraphModel';
 
 // --- 类型定义 ---
 export interface ApiConfig {
@@ -36,41 +38,18 @@ export interface AgentOptions {
   tools?: ToolInfo[];
   extraSystemPrompt?: any;
   maxTokens?: number;
-  /**
-   * only for chain agent
-   */
-  apiConfig?: ApiConfig
-  /**
-   * only for chain agent
-   * extends BaseChatModel
-   */
-  apiModel?: any
-  /**
-   * only for chain agent
-   */
-  maxIterations?: number
-  /**
-   * only for chain agent
-   */
   verbose?: boolean
-  /**
-   * only for graph agent
-   */
-  baseURL?: string;
-  /**
-   * only for graph agent
-   */
-  apiKey?: string;
-  /**
-   * only for graph agent
-   */
-  modelName?: string;
-  /**
-   * only for graph agent
-   */
+  apiConfig?: ApiConfig
+}
+
+export interface ChainAgentOptions extends AgentOptions {
+  apiModel?: AgentChainModel
+  maxIterations?: number
+}
+
+export interface GraphAgentOptions extends AgentOptions {
+  apiModel?: AgentGraphModel
   alwaysSystem?: boolean;
-  /**
-   * only for graph agent
-   */
   recursionLimit?: number;
+  maxTargetCount?: number
 }

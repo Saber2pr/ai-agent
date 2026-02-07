@@ -11,7 +11,7 @@ import { ChatOpenAI } from '@langchain/openai';
 
 import { CONFIG_FILE } from '../config/config';
 import { createDefaultBuiltinTools } from '../tools/builtin';
-import { AgentOptions, ApiConfig, ToolInfo } from '../types/type';
+import { AgentOptions, ApiConfig, ChainAgentOptions, ToolInfo } from '../types/type';
 
 export default class McpChainAgent {
   private allTools: ToolInfo[] = [];
@@ -27,7 +27,7 @@ export default class McpChainAgent {
   private runningTokenCounter: number = 0;
   private verbose: boolean;
 
-  constructor(options?: AgentOptions) {
+  constructor(options?: ChainAgentOptions) {
     this.extraTools = options?.tools || [];
     this.maxTokens = options?.maxTokens || 8000;
     this.apiConfig = options?.apiConfig;
