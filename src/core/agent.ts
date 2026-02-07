@@ -34,12 +34,11 @@ export default class McpAgent {
 你的目标是理解并分析用户项目，请务必遵循以下工作流：
 
 ### 第一阶段：全景感知 (The "Where" Phase)
-1. **必须首先调用 'get_directory_tree'**：获取项目完整文件列表，包括样式文件 (.less, .css) 和资源文件。
-2. 结合目录结构，观察项目架构（如 Monorepo 结构或 src 布局）。
+1. **必须首先调用 'list_directory'** 了解全局，再深入具体文件。
 
 ### 第二阶段：逻辑映射 (The "What" Phase)
 1. **调用 'get_repo_map'**：针对代码文件提取导出定义，理解模块间的调用关系。
-2. 如果需要查看具体的样式定义，直接使用 'read_text_file' 读取 .less 或 .css 文件。
+2. 如果需要查看具体的样式定义，直接使用 'read_text_file' 读取文件内容。
 
 ### 核心原则：
 - 不要猜测文件是否存在，先看目录树。
