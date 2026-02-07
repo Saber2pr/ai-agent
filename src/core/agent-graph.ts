@@ -431,7 +431,7 @@ export default class McpGraphAgent {
         // - 模式是 auto 且审计完成
         // - 或者 AI 明确输出了结束语
         // - 或者 AI 输出了普通内容且没有工具调用（针对问答模式）
-        const isAutoFinished = state.mode === "auto" && state.auditedFiles.length >= state.targetCount;
+        const isAutoFinished = state.mode === "auto" && state.auditedFiles.length > state.targetCount;
         const isFinalAnswer = content.includes("Final Answer");
 
         // ✅ 修复核心：如果 AI 只是在聊天（没有工具调用），直接结束，不要跳回 agent
