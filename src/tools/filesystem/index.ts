@@ -5,15 +5,15 @@ import { z } from 'zod';
 
 import { createTool } from '../../utils/createTool';
 import {
-    applyFileEdits, formatSize, getFileStats, headFile, readFileContent, searchFilesWithValidation,
-    setAllowedDirectories, tailFile, validatePath, writeFileContent
+  applyFileEdits, formatSize, getFileStats, headFile, readFileContent, searchFilesWithValidation,
+  setAllowedDirectories, tailFile, validatePath, writeFileContent
 } from './lib';
 
 // Schema definitions
 const ReadTextFileArgsSchema = z.object({
   path: z.string(),
-  tail: z.number().nullable().describe('If provided, returns only the last N lines of the file'),
-  head: z.number().nullable().describe('If provided, returns only the first N lines of the file')
+  tail: z.number().optional().describe('If provided, returns only the last N lines of the file'),
+  head: z.number().optional().describe('If provided, returns only the first N lines of the file')
 });
 
 const ReadMultipleFilesArgsSchema = z.object({
@@ -36,7 +36,7 @@ const EditOperation = z.object({
 const EditFileArgsSchema = z.object({
   path: z.string(),
   edits: z.array(EditOperation),
-  dryRun: z.boolean().nullable().default(false).describe('Preview changes using git-style diff format')
+  dryRun: z.boolean().optional().default(false).describe('Preview changes using git-style diff format')
 });
 
 const CreateDirectoryArgsSchema = z.object({
@@ -49,12 +49,12 @@ const ListDirectoryArgsSchema = z.object({
 
 const ListDirectoryWithSizesArgsSchema = z.object({
   path: z.string(),
-  sortBy: z.enum(['name', 'size']).nullable().default('name').describe('Sort entries by name or size'),
+  sortBy: z.enum(['name', 'size']).optional().default('name').describe('Sort entries by name or size'),
 });
 
 const DirectoryTreeArgsSchema = z.object({
   path: z.string(),
-  excludePatterns: z.array(z.string()).nullable().default([])
+  excludePatterns: z.array(z.string()).optional().default([])
 });
 
 const MoveFileArgsSchema = z.object({
@@ -65,7 +65,7 @@ const MoveFileArgsSchema = z.object({
 const SearchFilesArgsSchema = z.object({
   path: z.string(),
   pattern: z.string(),
-  excludePatterns: z.array(z.string()).nullable().default([])
+  excludePatterns: z.array(z.string()).optional().default([])
 });
 
 const GetFileInfoArgsSchema = z.object({

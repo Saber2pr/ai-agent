@@ -17,6 +17,7 @@ import { createDefaultBuiltinTools } from '../tools/builtin';
 import { ApiConfig, GraphAgentOptions, McpConfig, ToolInfo } from '../types/type';
 import { convertToLangChainTool } from '../utils/convertToLangChainTool';
 import { jsonSchemaToZod } from '../utils/jsonSchemaToZod';
+import { formatSchema } from '../utils/formatSchema';
 
 export const CONFIG_FILE = path.join(os.homedir(), ".saber2pr-agent.json");
 
@@ -116,8 +117,7 @@ export default class McpGraphAgent {
 
       if (schema && schema.shape) {
         // 如果是 ZodObject，打印其内部 key
-        const keys = Object.keys(schema.shape);
-        console.log(`   参数结构: [ ${keys.join(", ")} ]`);
+        console.log(`   参数结构:\n${formatSchema(schema)}`);
       } else if (schema && schema._def) {
         // 兼容其他 Zod 类型
         console.log(`   参数类型: ${schema._def.typeName}`);
