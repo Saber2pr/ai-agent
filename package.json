@@ -23,15 +23,14 @@
     "prepublishOnly": "tsc"
   },
   "dependencies": {
-    "@langchain/core": "0.3.39",
-    "@langchain/langgraph": "^0.2.39",
-    "@langchain/openai": "0.4.0",
+    "@langchain/core": "0.3.40",
+    "@langchain/langgraph": "^0.2.74",
+    "@langchain/openai": "0.4.9",
     "@modelcontextprotocol/sdk": "^1.25.3",
     "@saber2pr/ts-context-mcp": "^0.0.8",
     "diff": "^8.0.3",
     "glob": "^10.5.0",
     "js-tiktoken": "^1.0.21",
-    "langchain": "0.3.15",
     "minimatch": "^10.0.1",
     "openai": "^6.16.0",
     "zod": "3.25",
@@ -40,7 +39,7 @@
   },
   "resolutions": {
     "zod": "3.25",
-    "@langchain/core": "0.3.39"
+    "@langchain/core": "0.3.40"
   },
   "devDependencies": {
     "@types/node": "^16.3.3",
