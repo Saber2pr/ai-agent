@@ -1,6 +1,17 @@
 import { z } from 'zod';
 
 export function jsonSchemaToZod(parameters: any): z.ZodObject<any> {
+  // ✅ 跨版本/跨实例的特征检测
+  const isZod = parameters && (
+    typeof parameters.safeParse === 'function' || // 所有 Zod 类型都有
+    !!parameters._def ||                         // Zod 内部定义属性
+    !!parameters.shape                           // 专门针对 ZodObject 的特征
+  );
+
+  if (isZod) {
+    return parameters as z.ZodObject<any>;
+  }
+
   if (!parameters || typeof parameters !== 'object') {
     return z.object({}).passthrough();
   }

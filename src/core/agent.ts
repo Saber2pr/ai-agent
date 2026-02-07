@@ -11,6 +11,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { CONFIG_FILE } from '../config/config';
 import { createDefaultBuiltinTools } from '../tools/builtin';
 import { AgentOptions, ApiConfig, McpConfig, ToolInfo } from '../types/type';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { jsonSchemaToZod } from '../utils/jsonSchemaToZod';
 
 export default class McpAgent {
@@ -211,6 +212,29 @@ export default class McpAgent {
     }
   }
 
+  private getToolsForOpenAIAPI() {
+    return this.allTools.map((tool) => {
+      const { _handler, _client, _originalName, ...rest } = tool;
+
+      let parameters = rest.function.parameters as any;
+
+      // 💡 核心逻辑：判断是否为 Zod 实例并转换
+      // Zod 对象通常包含 _def 属性，或者你可以用 instanceof z.ZodType
+      if (parameters && typeof parameters === 'object' && ('_def' in parameters || parameters.safeParse)) {
+        // 使用 zod-to-json-schema 转换为标准 JSON Schema
+        parameters = zodToJsonSchema(parameters);
+      }
+
+      return {
+        ...rest,
+        function: {
+          ...rest.function,
+          parameters: parameters, // 确保这里是 Plain Object
+        },
+      };
+    });
+  }
+
   private async processChat(userInput: string) {
     this.messages.push({ role: 'user', content: userInput });
 
@@ -237,7 +261,7 @@ export default class McpAgent {
         response = await this.openai.chat.completions.create({
           model: this.modelName,
           messages: this.messages,
-          tools: this.allTools.map(({ _handler, _client, _originalName, ...rest }) => rest) as any,
+          tools: this.getToolsForOpenAIAPI(),
           tool_choice: 'auto'
         });
       } finally {
@@ -268,7 +292,10 @@ export default class McpAgent {
           console.log(`   📂 正在查看文件: ${args.filePath}`);
         }
 
-        console.log(`   🛠️  执行: ${call.function.name}`);
+        // 2. 打印操作信息和参数
+        console.log(`\n   🛠️  执行工具: \x1b[36m${call.function.name}\x1b[0m`);
+        console.log(`   📦 传入参数: \x1b[2m${JSON.stringify(args)}\x1b[0m`);
+
         let result: any;
 
         if (tool?._handler) {

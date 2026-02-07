@@ -5,7 +5,7 @@ export interface CreateToolOptions {
   name: string;
   description: string;
   /**
-   * zod@3.23.8
+   * zod@3.25
    */
   parameters: z.ZodObject<any>;
   handler: (args: any) => Promise<string>;

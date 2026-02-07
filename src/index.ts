@@ -1,7 +1,5 @@
 export * from './core/agent'
-export { default as McpChainAgent } from './core/agent-chain'
 export { default } from './core/agent'
 export { createTool } from './utils/createTool'
-export { AgentChainModel } from './model/AgentChainModel'
 export { AgentGraphModel, AgentGraphLLMResponse } from './model/AgentGraphModel'
 export { default as McpGraphAgent } from './core/agent-graph'

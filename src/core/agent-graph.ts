@@ -13,8 +13,11 @@ import { ChatOpenAI } from '@langchain/openai';
 
 import { AgentGraphModel } from '../model/AgentGraphModel';
 import { createDefaultBuiltinTools } from '../tools/builtin';
-import { ApiConfig, GraphAgentOptions } from '../types/type';
+import { ApiConfig, GraphAgentOptions, McpConfig, ToolInfo } from '../types/type';
 import { convertToLangChainTool } from '../utils/convertToLangChainTool';
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { jsonSchemaToZod } from '../utils/jsonSchemaToZod';
 
 export const CONFIG_FILE = path.join(os.homedir(), ".saber2pr-agent.json");
 
@@ -73,6 +76,8 @@ export default class McpGraphAgent {
   private apiConfig: ApiConfig;
   private maxTargetCount: number;
   private maxTokens: number;
+  private mcpClients: Client[] = [];
+
   constructor(options: GraphAgentOptions = {}) {
     this.options = options;
     this.verbose = options.verbose || false;
@@ -89,20 +94,142 @@ export default class McpGraphAgent {
     // 设置 EventEmitter 的默认 maxListeners，这会影响所有事件发射器（包括 AbortSignal）
     EventEmitter.defaultMaxListeners = 100;
 
-    const cleanup = () => {
+    const cleanup = async () => {
       this.stopLoading();
+      await this.closeMcpClients(); // 清理 MCP 连接
       process.stdout.write('\u001B[?25h');
       process.exit(0);
     };
+
     process.on("SIGINT", cleanup);
     process.on("SIGTERM", cleanup);
+  }
 
-    // ✅ 初始化内置工具
-    const builtinToolInfos = createDefaultBuiltinTools({ options });
-    this.langchainTools = [...builtinToolInfos, ...(options.tools || [])].map((t) =>
-      convertToLangChainTool(t)
-    );
+  private printLoadedTools() {
+    console.log("\n🛠️  [Graph] 正在加载工具节点...");
+
+    this.langchainTools.forEach((tool: any) => {
+      // 工具名称
+      console.log(`\n🧰 工具名: ${tool.name}`);
+
+      // 提取参数结构 (LangChain Tool 的 schema 是 Zod 对象)
+      const schema = tool.schema;
+
+      if (schema && schema.shape) {
+        // 如果是 ZodObject，打印其内部 key
+        const keys = Object.keys(schema.shape);
+        console.log(`   参数结构: [ ${keys.join(", ")} ]`);
+      } else if (schema && schema._def) {
+        // 兼容其他 Zod 类型
+        console.log(`   参数类型: ${schema._def.typeName}`);
+      } else {
+        // 降级：如果已经是 JSON 对象
+        console.log(`   参数结构:`, JSON.stringify(schema, null, 2));
+      }
+    });
+
+    console.log(`\n✅ Graph 节点就绪，总计加载 ${this.langchainTools.length} 个工具。\n`);
+  }
+
+  private loadMcpConfigs(): McpConfig {
+    const combined: McpConfig = { mcpServers: {} };
+    const paths = [
+      path.join(os.homedir(), ".cursor", "mcp.json"),
+      path.join(os.homedir(), ".vscode", "mcp.json"),
+    ];
+    paths.forEach((p) => {
+      if (fs.existsSync(p)) {
+        const content = JSON.parse(fs.readFileSync(p, "utf-8"));
+        Object.assign(combined.mcpServers, content.mcpServers);
+      }
+    });
+    return combined;
+  }
+
+
+  private async initMcpTools() {
+    const mcpConfig = this.loadMcpConfigs();
+    const mcpServers = mcpConfig.mcpServers || {};
+    const mcpToolInfos: ToolInfo[] = [];
+
+    for (const [name, config] of Object.entries(mcpServers)) {
+      try {
+        const transport = new StdioClientTransport({
+          command: config.command,
+          args: config.args,
+          env: { ...process.env, ...(config.env || {}) } as any,
+        });
+
+        const client = new Client(
+          { name: "mcp-graph-client", version: "1.0.0" },
+          { capabilities: {} }
+        );
+
+        await client.connect(transport);
+        this.mcpClients.push(client);
+
+        const { tools } = await client.listTools();
+
+        tools.forEach((tool) => {
+          mcpToolInfos.push({
+            type: "function",
+            function: {
+              name: tool.name,
+              description: tool.description,
+              parameters: jsonSchemaToZod(tool.inputSchema), // MCP 使用 JSON Schema
+            },
+            _handler: async (args) => {
+              const result = await client.callTool({
+                name: tool.name,
+                arguments: args,
+              });
+              return result.content;
+            },
+          });
+        });
+        console.log(`\n✅ 已连接 MCP 服务 [${name}]: 加载了 ${tools.length} 个工具`);
+      } catch (error) {
+        console.error(`\n❌ 连接 MCP 服务 [${name}] 失败:`, error.message);
+      }
+    }
+    return mcpToolInfos;
+  }
+
+  private async prepareTools() {
+    const builtinToolInfos = createDefaultBuiltinTools({ options: this.options });
+    const mcpToolInfos = await this.initMcpTools();
+
+    // 合并内置、手动传入和 MCP 工具
+    const allToolInfos = [
+      ...builtinToolInfos,
+      ...(this.options.tools || []),
+      ...mcpToolInfos
+    ];
+
+    this.langchainTools = allToolInfos.map((t) => convertToLangChainTool(t));
     this.toolNode = new ToolNode(this.langchainTools);
+  }
+
+  // ✅ 修改：初始化逻辑
+  private async ensureInitialized() {
+    if (this.model && this.langchainTools.length > 0) return;
+
+    // 1. 加载所有工具（含 MCP）
+    await this.prepareTools();
+
+    // 2. 初始化模型
+    await this.getModel();
+
+    // 3. 打印工具状态
+    this.printLoadedTools();
+  }
+
+  // ✅ 新增：关闭连接
+  private async closeMcpClients() {
+    for (const client of this.mcpClients) {
+      try { await client.close(); } catch (e) { }
+    }
+    this.mcpClients = [];
   }
 
   private showLoading(text: string) {
@@ -134,7 +261,7 @@ export default class McpGraphAgent {
 
   private async getModel() {
     if (this.model) return this.model;
-    let modelInstance: RunnableLike | AgentGraphModel = this.options.apiModel;
+    let modelInstance: any = this.options.apiModel;
     if (!modelInstance) {
       const config = await this.askForConfig();
       modelInstance = new ChatOpenAI({
@@ -145,11 +272,7 @@ export default class McpGraphAgent {
         maxTokens: this.maxTokens,
       });
     }
-    if (modelInstance instanceof AgentGraphModel) {
-      this.model = modelInstance.bindTools(this.langchainTools);
-    } else {
-      this.model = modelInstance;
-    }
+    this.model = modelInstance.bindTools(this.langchainTools);
     return this.model;
   }
 
@@ -172,6 +295,7 @@ export default class McpGraphAgent {
   }
 
   async chat(query: string = "开始代码审计") {
+    await this.ensureInitialized();
     await this.getModel();
     const app = await this.createGraph();
     const stream = await app.stream({
@@ -184,6 +308,7 @@ export default class McpGraphAgent {
   }
 
   async start() {
+    await this.ensureInitialized();
     await this.getModel();
     const app = await this.createGraph();
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });

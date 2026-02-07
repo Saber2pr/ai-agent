@@ -1,6 +1,5 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index';
 import { z } from 'zod';
-import { AgentChainModel } from '../model/AgentChainModel';
 import { AgentGraphModel } from '../model/AgentGraphModel';
 
 // --- 类型定义 ---
@@ -40,11 +39,6 @@ export interface AgentOptions {
   maxTokens?: number;
   verbose?: boolean
   apiConfig?: ApiConfig
-}
-
-export interface ChainAgentOptions extends AgentOptions {
-  apiModel?: AgentChainModel
-  maxIterations?: number
 }
 
 export interface GraphAgentOptions extends AgentOptions {
