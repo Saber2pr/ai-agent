@@ -294,16 +294,22 @@ export default class McpGraphAgent {
   }
 
   async chat(query: string = "开始代码审计") {
-    await this.ensureInitialized();
-    await this.getModel();
-    const app = await this.createGraph();
-    const stream = await app.stream({
-      messages: [new HumanMessage(query)],
-      mode: "auto",
-      targetCount: this.maxTargetCount,
-    }, { configurable: { thread_id: "auto_worker" }, recursionLimit: this.recursionLimit, debug: this.verbose, });
+    try {
+      await this.ensureInitialized();
+      await this.getModel();
+      const app = await this.createGraph();
+      const stream = await app.stream({
+        messages: [new HumanMessage(query)],
+        mode: "auto",
+        targetCount: this.maxTargetCount,
+      }, { configurable: { thread_id: "auto_worker" }, recursionLimit: this.recursionLimit, debug: this.verbose, });
 
-    for await (const output of stream) this.renderOutput(output);
+      for await (const output of stream) this.renderOutput(output);
+    } catch (error) {
+      console.error("\n❌ Chat 过程中发生错误:", error);
+    } finally {
+      await this.closeMcpClients();
+    }
   }
 
   async start() {

@@ -24,6 +24,8 @@ export default class McpAgent {
   private maxTokens: number;
   private apiConfig: ApiConfig
   private targetDir: string;
+  private mcpClients: Client[] = [];
+
   constructor(options?: AgentOptions) {
     this.targetDir = options?.targetDir || process.cwd();
     this.extraTools = options?.tools || []; // 接收外部传入的工具
@@ -60,6 +62,14 @@ export default class McpAgent {
     });
 
     this.initTools(options); // 注入外部工具
+  }
+
+  // ✅ 新增：关闭连接
+  private async closeMcpClients() {
+    for (const client of this.mcpClients) {
+      try { await client.close(); } catch (e) { }
+    }
+    this.mcpClients = [];
   }
 
   /**
@@ -190,6 +200,7 @@ export default class McpAgent {
           { capabilities: {} },
         );
         await client.connect(transport);
+        this.mcpClients.push(client);
         const { tools } = await client.listTools();
 
         this.allTools.push(
@@ -367,17 +378,24 @@ export default class McpAgent {
    * @returns AI 的最终答复内容
    */
   async chat(input: string): Promise<string> {
-    if (!this.openai) {
-      await this.init();
+    try {
+      if (!this.openai) {
+        await this.init();
+      }
+
+      // 调用现有的处理逻辑
+      // 假设你的 processChat 已经处理了所有的 tool_calls 循环
+      await this.processChat(input);
+
+      // 返回消息列表中的最后一条 AI 回复
+      const lastMsg = this.messages[this.messages.length - 1];
+      return lastMsg.role === 'assistant' ? (lastMsg.content as string) : '';
+    } catch (error) {
+      console.error("\n❌ 系统错误:", error.message);
+      return '';
+    } finally {
+      await this.closeMcpClients();
     }
-
-    // 调用现有的处理逻辑
-    // 假设你的 processChat 已经处理了所有的 tool_calls 循环
-    await this.processChat(input);
-
-    // 返回消息列表中的最后一条 AI 回复
-    const lastMsg = this.messages[this.messages.length - 1];
-    return lastMsg.role === 'assistant' ? (lastMsg.content as string) : '';
   }
 
   // 修改原来的 start 方法，使其内部也调用 chat
