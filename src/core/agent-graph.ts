@@ -18,6 +18,7 @@ import { ApiConfig, GraphAgentOptions, McpConfig, ToolInfo } from '../types/type
 import { convertToLangChainTool } from '../utils/convertToLangChainTool';
 import { jsonSchemaToZod } from '../utils/jsonSchemaToZod';
 import { formatSchema } from '../utils/formatSchema';
+import { AgentGraphModel } from '../model/AgentGraphModel';
 
 export const CONFIG_FILE = path.join(os.homedir(), ".saber2pr-agent.json");
 
@@ -62,8 +63,8 @@ const AgentState = Annotation.Root({
   }),
 });
 
-export default class McpGraphAgent {
-  private model: RunnableLike;
+export default class McpGraphAgent<T extends AgentGraphModel = any> {
+  private model: T;
   private toolNode: ToolNode;
   private targetDir: string;
   private options: GraphAgentOptions;
@@ -78,7 +79,7 @@ export default class McpGraphAgent {
   private maxTokens: number;
   private mcpClients: Client[] = [];
 
-  constructor(options: GraphAgentOptions = {}) {
+  constructor(options: GraphAgentOptions<T> = {}) {
     this.options = options;
     this.verbose = options.verbose || false;
     this.alwaysSystem = options.alwaysSystem || true;
@@ -258,7 +259,7 @@ export default class McpGraphAgent {
     }
   }
 
-  private async getModel() {
+  async getModel() {
     if (this.model) return this.model;
     let modelInstance: any = this.options.apiModel;
     if (!modelInstance) {

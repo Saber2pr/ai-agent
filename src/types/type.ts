@@ -43,9 +43,9 @@ export interface AgentOptions {
   apiConfig?: ApiConfig
 }
 
-export interface GraphAgentOptions extends AgentOptions {
-  apiModel?: AgentGraphModel
+export interface GraphAgentOptions<T extends AgentGraphModel = any> extends AgentOptions {
+  apiModel?: T;
   alwaysSystem?: boolean;
   recursionLimit?: number;
-  maxTargetCount?: number
+  maxTargetCount?: number;
 }
