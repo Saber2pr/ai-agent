@@ -210,7 +210,7 @@ export default class McpGraphAgent {
   }
 
   // ✅ 修改：初始化逻辑
-  private async ensureInitialized() {
+  async ensureInitialized() {
     if (this.model && this.langchainTools.length > 0) return;
 
     // 1. 加载所有工具（含 MCP）
