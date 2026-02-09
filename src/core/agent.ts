@@ -1,27 +1,27 @@
 import fs from 'fs';
-import { Tiktoken } from 'js-tiktoken/lite';
 import OpenAI from 'openai';
 import os from 'os';
 import path from 'path';
 import * as readline from 'readline';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-// @ts-ignore
-import o200kBase from "js-tiktoken/ranks/o200k_base";
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { getEncoding } from '@langchain/core/utils/tiktoken';
 
 import { CONFIG_FILE } from '../config/config';
 import { createDefaultBuiltinTools } from '../tools/builtin';
 import { AgentOptions, ApiConfig, McpConfig, ToolInfo } from '../types/type';
 import { jsonSchemaToZod } from '../utils/jsonSchemaToZod';
 
+type Encoding = Parameters<Parameters<ReturnType<(typeof getEncoding)>['then']>[0]>[0];
+
 export default class McpAgent {
   private openai!: OpenAI;
   private modelName = '';
   private allTools: ToolInfo[] = [];
   private messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
-  private encoder = new Tiktoken(o200kBase);
+  private encoder: Encoding;
   private extraTools: ToolInfo[] = [];
   private maxTokens: number;
   private apiConfig: ApiConfig;
@@ -81,7 +81,11 @@ export default class McpAgent {
    * 计算当前消息列表的总 Token 消耗
    * 兼容多模态内容 (Content Parts) 和 工具调用 (Tool Calls)
    */
-  private calculateTokens(): number {
+  private async calculateTokens(): Promise<number> {
+    if (!this.encoder) {
+      this.encoder = await getEncoding('cl100k_base');
+    }
+
     let total = 0;
 
     for (const msg of this.messages) {
@@ -255,10 +259,10 @@ export default class McpAgent {
 
     while (true) {
       // --- 新增：发送请求前先检查并裁剪 ---
-      this.pruneMessages();
+      await this.pruneMessages();
 
       // 打印当前上下文的累计 Token
-      const currentInputTokens = this.calculateTokens();
+      const currentInputTokens = await this.calculateTokens();
       console.log(`\n📊 当前上下文累计: ${currentInputTokens} tokens`);
 
       // 如果接近上限（如 80%），在消息队列中插入一条隐含的系统指令
@@ -344,15 +348,15 @@ export default class McpAgent {
    * 裁剪上下文消息列表
    * 保留第一条 System 消息，并移除中间的旧消息直到低于阈值
    */
-  private pruneMessages() {
-    const currentTokens = this.calculateTokens();
+  private async pruneMessages() {
+    const currentTokens = await this.calculateTokens();
     if (currentTokens <= this.maxTokens) return;
 
     console.log(`\n⚠️ 上下文达到限制 (${currentTokens} tokens)，正在自动裁剪...`);
 
     // 策略：保留索引 0 (System)，从索引 1 开始删除
     // 每次删除一对 (通常是助理请求 + 工具回复，或者用户提问 + 助理回答)
-    while (this.calculateTokens() > this.maxTokens && this.messages.length > 2) {
+    while (await this.calculateTokens() > this.maxTokens && this.messages.length > 2) {
       // 始终保留系统提示词 (index 0) 和最后一条消息 (保持对话连贯)
       // 删除索引为 1 的消息
       this.messages.splice(1, 1);
