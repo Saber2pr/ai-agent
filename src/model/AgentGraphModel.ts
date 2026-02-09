@@ -2,6 +2,7 @@ import { BaseChatModel, BaseChatModelParams } from '@langchain/core/language_mod
 import { AIMessage, BaseMessage } from '@langchain/core/messages';
 import { ChatResult } from '@langchain/core/outputs';
 import { convertToOpenAITool } from '@langchain/core/utils/function_calling';
+import { cleanToolDefinition } from '../utils/cleanToolDefinition';
 
 export interface AgentGraphLLMResponse {
   text: string;
@@ -29,14 +30,14 @@ export abstract class AgentGraphModel extends BaseChatModel {
     const fullPrompt = this.serializeMessages(messages);
     const response = await this.callApi(fullPrompt);
 
-    let { text, reasoning, token, duration } = response;
+    let { text, reasoning } = response;
 
     // 1. 处理思考内容
-    if (!reasoning && text.includes("<think>")) {
+    if (!reasoning && text.includes('<think>')) {
       const match = text.match(/<think>([\s\S]*?)<\/think>/);
       if (match) {
         reasoning = match[1].trim();
-        text = text.replace(/<think>[\s\S]*?<\/think>/, "").trim();
+        text = text.replace(/<think>[\s\S]*?<\/think>/, '').trim();
       }
     }
 
@@ -45,23 +46,25 @@ export abstract class AgentGraphModel extends BaseChatModel {
 
     // AgentGraphModel.ts 的 _generate 方法内
     return {
-      generations: [{
-        text,
-        message: new AIMessage({
-          content: text,
-          tool_calls: toolCalls,
-          additional_kwargs: {
-            reasoning: reasoning || "",
-            token: response.token,      // 👈 必须
-            duration: response.duration, // 👈 必须
-          },
-          response_metadata: {
-            reasoning: reasoning || "",
-            token: response.token,      // 👈 McpGraphAgent 读取路径
-            duration: response.duration,
-          }
-        })
-      }]
+      generations: [
+        {
+          text,
+          message: new AIMessage({
+            content: text,
+            tool_calls: toolCalls,
+            additional_kwargs: {
+              reasoning: reasoning || '',
+              token: response.token, // 👈 必须
+              duration: response.duration, // 👈 必须
+            },
+            response_metadata: {
+              reasoning: reasoning || '',
+              token: response.token, // 👈 McpGraphAgent 读取路径
+              duration: response.duration,
+            },
+          }),
+        },
+      ],
     };
   }
 
@@ -99,12 +102,14 @@ export abstract class AgentGraphModel extends BaseChatModel {
     }
 
     // ✅ 此时返回的 args 必须是 object 类型
-    return [{
-      name: actionMatch[1],
-      args: typeof args === 'object' ? args : {},
-      id: `call_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      type: "tool_call" as const,
-    }];
+    return [
+      {
+        name: actionMatch[1],
+        args: typeof args === 'object' ? args : {},
+        id: `call_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        type: 'tool_call' as const,
+      },
+    ];
   }
 
   private serializeMessages(messages: BaseMessage[]): string {
@@ -112,11 +117,14 @@ export abstract class AgentGraphModel extends BaseChatModel {
     const lastMsg = messages[messages.length - 1];
 
     const format = (m: BaseMessage) => {
-      const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content, null, 2);
+      const content =
+        typeof m.content === 'string' ? m.content : JSON.stringify(m.content, null, 2);
       return `${m._getType().toUpperCase()}: ${content}`;
     };
 
-    const toolsContext = this.boundTools ? `\n[Tools]\n${JSON.stringify(this.boundTools, null, 2)}` : "";
+    const toolsContext = this.boundTools
+      ? `\n[Tools]\n${JSON.stringify(this.boundTools.map(cleanToolDefinition), null, 2)}`
+      : '';
 
     return `
 ${format(systemMsg as any)}
@@ -130,5 +138,7 @@ ${format(lastMsg)}
 `.trim();
   }
 
-  _llmType() { return "agent_graph_model"; }
+  _llmType() {
+    return 'agent_graph_model';
+  }
 }
