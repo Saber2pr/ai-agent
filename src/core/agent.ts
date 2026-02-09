@@ -1,10 +1,12 @@
 import fs from 'fs';
-import { getEncoding } from 'js-tiktoken';
+import { Tiktoken } from 'js-tiktoken/lite';
 import OpenAI from 'openai';
 import os from 'os';
 import path from 'path';
 import * as readline from 'readline';
 import { zodToJsonSchema } from 'zod-to-json-schema';
+// @ts-ignore
+import o200kBase from "js-tiktoken/ranks/o200k_base";
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -16,13 +18,13 @@ import { jsonSchemaToZod } from '../utils/jsonSchemaToZod';
 
 export default class McpAgent {
   private openai!: OpenAI;
-  private modelName: string = "";
+  private modelName = '';
   private allTools: ToolInfo[] = [];
   private messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
-  private encoder = getEncoding("cl100k_base");
+  private encoder = new Tiktoken(o200kBase);
   private extraTools: ToolInfo[] = [];
   private maxTokens: number;
-  private apiConfig: ApiConfig
+  private apiConfig: ApiConfig;
   private targetDir: string;
   private mcpClients: Client[] = [];
 
@@ -30,7 +32,7 @@ export default class McpAgent {
     this.targetDir = options?.targetDir || process.cwd();
     this.extraTools = options?.tools || []; // 接收外部传入的工具
     this.maxTokens = options?.maxTokens || 100000; // 默认 100k
-    this.apiConfig = options?.apiConfig
+    this.apiConfig = options?.apiConfig;
 
     let baseSystemPrompt = `你是一个专业的代码架构师。
 你的目标是理解并分析用户项目，请务必遵循以下工作流：
@@ -49,15 +51,16 @@ export default class McpAgent {
 
     // 2. 拼接额外指令
     if (options?.extraSystemPrompt) {
-      const extra = typeof options.extraSystemPrompt === 'string'
-        ? options.extraSystemPrompt
-        : JSON.stringify(options.extraSystemPrompt, null, 2);
+      const extra =
+        typeof options.extraSystemPrompt === 'string'
+          ? options.extraSystemPrompt
+          : JSON.stringify(options.extraSystemPrompt, null, 2);
 
       baseSystemPrompt += `\n\n[额外执行指令]:\n${extra}`;
     }
 
     this.messages.push({
-      role: "system",
+      role: 'system',
       content: baseSystemPrompt,
     });
 
@@ -67,7 +70,9 @@ export default class McpAgent {
   // ✅ 新增：关闭连接
   private async closeMcpClients() {
     for (const client of this.mcpClients) {
-      try { await client.close(); } catch (e) { }
+      try {
+        await client.close();
+      } catch (e) { }
     }
     this.mcpClients = [];
   }
@@ -82,14 +87,14 @@ export default class McpAgent {
     for (const msg of this.messages) {
       // 1. 处理消息内容 (Content)
       if (msg.content) {
-        if (typeof msg.content === "string") {
+        if (typeof msg.content === 'string') {
           // 普通文本消息
           total += this.encoder.encode(msg.content).length;
         } else if (Array.isArray(msg.content)) {
           // 多模态/复合内容消息 (ChatCompletionContentPart[])
           for (const part of msg.content) {
-            if (part.type === "text" && "text" in part) {
-              total += this.encoder.encode(part.text || "").length;
+            if (part.type === 'text' && 'text' in part) {
+              total += this.encoder.encode(part.text || '').length;
             }
             // 注意：图片 (image_url) 的 Token 计算通常基于分辨率，tiktoken 无法计算
           }
@@ -98,9 +103,9 @@ export default class McpAgent {
 
       // 2. 处理助手角色发出的工具调用请求 (Assistant Tool Calls)
       // 这是为了统计 AI 发出的指令所占用的 Token
-      if (msg.role === "assistant" && msg.tool_calls) {
+      if (msg.role === 'assistant' && msg.tool_calls) {
         for (const call of msg.tool_calls) {
-          if (call.type === "function") {
+          if (call.type === 'function') {
             // 统计函数名和参数字符串
             total += this.encoder.encode(call.function.name).length;
             total += this.encoder.encode(call.function.arguments).length;
@@ -110,7 +115,7 @@ export default class McpAgent {
 
       // 3. 处理工具返回的结果 (Tool Role)
       // 在 processChat 中，我们确保了工具返回的 result 最终被转为了 string
-      if (msg.role === "tool" && typeof msg.content === "string") {
+      if (msg.role === 'tool' && typeof msg.content === 'string') {
         total += this.encoder.encode(msg.content).length;
       }
     }
@@ -124,11 +129,11 @@ export default class McpAgent {
       ...createDefaultBuiltinTools({
         options: {
           ...options,
-          ...this
-        }
+          ...this,
+        },
       }),
-      ...this.extraTools
-    ]
+      ...this.extraTools,
+    ];
 
     if (allTools?.length) {
       this.allTools.push(...allTools);
@@ -138,25 +143,22 @@ export default class McpAgent {
   // --- 初始化与环境准备 (API Config & MCP Servers) ---
 
   private async ensureApiConfig(): Promise<ApiConfig> {
-    if (this.apiConfig) return this.apiConfig
+    if (this.apiConfig) return this.apiConfig;
 
     if (fs.existsSync(CONFIG_FILE)) {
-      return JSON.parse(fs.readFileSync(CONFIG_FILE, "utf-8"));
+      return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
     }
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
     });
-    const question = (q: string) =>
-      new Promise<string>((res) => rl.question(q, res));
+    const question = (q: string) => new Promise<string>(res => rl.question(q, res));
 
-    console.log("\n🔑 配置 API 凭据:");
+    console.log('\n🔑 配置 API 凭据:');
     const config = {
-      baseURL: await question(
-        "? API Base URL (如 https://api.openai.com/v1): ",
-      ),
-      apiKey: await question("? API Key: "),
-      model: await question("? Model Name (如 gpt-4o): "),
+      baseURL: await question('? API Base URL (如 https://api.openai.com/v1): '),
+      apiKey: await question('? API Key: '),
+      model: await question('? Model Name (如 gpt-4o): '),
     };
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
     rl.close();
@@ -166,12 +168,12 @@ export default class McpAgent {
   private loadMcpConfigs(): McpConfig {
     const combined: McpConfig = { mcpServers: {} };
     const paths = [
-      path.join(os.homedir(), ".cursor", "mcp.json"),
-      path.join(os.homedir(), ".vscode", "mcp.json"),
+      path.join(os.homedir(), '.cursor', 'mcp.json'),
+      path.join(os.homedir(), '.vscode', 'mcp.json'),
     ];
-    paths.forEach((p) => {
+    paths.forEach(p => {
       if (fs.existsSync(p)) {
-        const content = JSON.parse(fs.readFileSync(p, "utf-8"));
+        const content = JSON.parse(fs.readFileSync(p, 'utf-8'));
         Object.assign(combined.mcpServers, content.mcpServers);
       }
     });
@@ -195,25 +197,24 @@ export default class McpAgent {
           args: server.args || [],
           env: { ...process.env, ...server.env } as any,
         });
-        const client = new Client(
-          { name, version: "1.0.0" },
-          { capabilities: {} },
-        );
+        const client = new Client({ name, version: '1.0.0' }, { capabilities: {} });
         await client.connect(transport);
         this.mcpClients.push(client);
         const { tools } = await client.listTools();
 
         this.allTools.push(
-          ...tools.map((t): ToolInfo => ({
-            type: "function" as const,
-            function: {
-              name: `${name}__${t.name}`,
-              description: t.description,
-              parameters: jsonSchemaToZod(t.inputSchema),
-            },
-            _originalName: t.name,
-            _client: client,
-          })),
+          ...tools.map(
+            (t): ToolInfo => ({
+              type: 'function' as const,
+              function: {
+                name: `${name}__${t.name}`,
+                description: t.description,
+                parameters: jsonSchemaToZod(t.inputSchema),
+              },
+              _originalName: t.name,
+              _client: client,
+            })
+          )
         );
         console.log(`✅ [${name}] 加载成功`);
       } catch (e) {
@@ -223,14 +224,18 @@ export default class McpAgent {
   }
 
   private getToolsForOpenAIAPI() {
-    return this.allTools.map((tool) => {
+    return this.allTools.map(tool => {
       const { _handler, _client, _originalName, ...rest } = tool;
 
       let parameters = rest.function.parameters as any;
 
       // 💡 核心逻辑：判断是否为 Zod 实例并转换
       // Zod 对象通常包含 _def 属性，或者你可以用 instanceof z.ZodType
-      if (parameters && typeof parameters === 'object' && ('_def' in parameters || parameters.safeParse)) {
+      if (
+        parameters &&
+        typeof parameters === 'object' &&
+        ('_def' in parameters || parameters.safeParse)
+      ) {
         // 使用 zod-to-json-schema 转换为标准 JSON Schema
         parameters = zodToJsonSchema(parameters);
       }
@@ -259,12 +264,12 @@ export default class McpAgent {
       // 如果接近上限（如 80%），在消息队列中插入一条隐含的系统指令
       if (currentInputTokens > this.maxTokens * 0.8 && currentInputTokens <= this.maxTokens) {
         this.messages.push({
-          role: "system",
-          content: "注意：上下文即将耗尽。请停止读取新文件，优先处理现有信息并尽快输出结果。"
+          role: 'system',
+          content: '注意：上下文即将耗尽。请停止读取新文件，优先处理现有信息并尽快输出结果。',
         });
       }
 
-      const stopLoading = this.showLoading("🤖 Agent 正在思考...");
+      const stopLoading = this.showLoading('🤖 Agent 正在思考...');
 
       let response;
       try {
@@ -272,17 +277,18 @@ export default class McpAgent {
           model: this.modelName,
           messages: this.messages,
           tools: this.getToolsForOpenAIAPI(),
-          tool_choice: 'auto'
+          tool_choice: 'auto',
         });
       } finally {
         stopLoading();
       }
 
-      const message = response.choices[0].message;
+      const { message } = response.choices[0];
       this.messages.push(message);
 
       // 计算本次 AI 回复生成的 Token
-      const completionTokens = response.usage?.completion_tokens ||
+      const completionTokens =
+        response.usage?.completion_tokens ||
         (message.content ? this.encoder.encode(message.content).length : 0);
       console.log(`✨ AI 回复消耗: ${completionTokens} tokens`);
 
@@ -313,12 +319,12 @@ export default class McpAgent {
         } else if (tool?._client && tool._originalName) {
           const mcpRes = await tool._client.callTool({
             name: tool._originalName,
-            arguments: args
+            arguments: args,
           });
           result = mcpRes.content;
         }
 
-        const resultContent = typeof result === "string" ? result : JSON.stringify(result);
+        const resultContent = typeof result === 'string' ? result : JSON.stringify(result);
 
         // 打印工具返回结果的 Token 消耗
         const toolResultTokens = this.encoder.encode(resultContent).length;
@@ -327,7 +333,7 @@ export default class McpAgent {
         this.messages.push({
           role: 'tool',
           tool_call_id: call.id,
-          content: resultContent
+          content: resultContent,
         });
         console.log(`   ✅ 完成: ${call.function.name}`);
       }
@@ -335,9 +341,9 @@ export default class McpAgent {
   }
 
   /**
- * 裁剪上下文消息列表
- * 保留第一条 System 消息，并移除中间的旧消息直到低于阈值
- */
+   * 裁剪上下文消息列表
+   * 保留第一条 System 消息，并移除中间的旧消息直到低于阈值
+   */
   private pruneMessages() {
     const currentTokens = this.calculateTokens();
     if (currentTokens <= this.maxTokens) return;
@@ -391,7 +397,7 @@ export default class McpAgent {
       const lastMsg = this.messages[this.messages.length - 1];
       return lastMsg.role === 'assistant' ? (lastMsg.content as string) : '';
     } catch (error) {
-      console.error("\n❌ 系统错误:", error.message);
+      console.error('\n❌ 系统错误:', error.message);
       return '';
     } finally {
       await this.closeMcpClients();
@@ -411,13 +417,13 @@ export default class McpAgent {
     console.log(`\n🚀 代码助手已启动 (目标目录: ${this.targetDir})`);
 
     const chatLoop = () => {
-      rl.question("\n👤 你: ", async (input) => {
-        if (input.toLowerCase() === "exit") process.exit(0);
+      rl.question('\n👤 你: ', async input => {
+        if (input.toLowerCase() === 'exit') process.exit(0);
         try {
           // 这里统一调用 chat 或核心逻辑
           await this.chat(input);
         } catch (err: any) {
-          console.error("\n❌ 系统错误:", err.message);
+          console.error('\n❌ 系统错误:', err.message);
         }
         chatLoop();
       });
