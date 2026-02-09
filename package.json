@@ -30,7 +30,6 @@
     "@saber2pr/ts-context-mcp": "^0.0.9",
     "diff": "^8.0.3",
     "glob": "^10.5.0",
-    "js-tiktoken": "^1.0.21",
     "minimatch": "^10.0.1",
     "openai": "^6.16.0",
     "typescript": "^5.9.3",
