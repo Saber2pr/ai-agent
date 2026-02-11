@@ -11,6 +11,9 @@ export interface AgentGraphLLMResponse {
   duration?: number;
 }
 
+/** 流式输出的回调类型 */
+export type StreamChunkCallback = (chunk: string) => void;
+
 export abstract class AgentGraphModel extends BaseChatModel {
   protected boundTools?: any[];
 
@@ -25,6 +28,19 @@ export abstract class AgentGraphModel extends BaseChatModel {
 
   // 子类只需实现这个方法，返回 fetch 的配置或直接返回响应
   abstract callApi(prompt: string): Promise<AgentGraphLLMResponse>;
+
+  /**
+   * 流式调用 API，子类可覆盖以实现真正的 SSE 流式传输。
+   * 默认回退到 callApi 非流式调用。
+   * @param prompt 序列化后的提示词
+   * @param onChunk 每收到一段文本时的回调
+   * @returns 完整的响应结果
+   */
+  async callApiStream(prompt: string, onChunk: StreamChunkCallback): Promise<AgentGraphLLMResponse> {
+    const result = await this.callApi(prompt);
+    onChunk(result.text);
+    return result;
+  }
 
   async _generate(messages: BaseMessage[]): Promise<ChatResult> {
     const fullPrompt = this.serializeMessages(messages);
@@ -112,7 +128,53 @@ export abstract class AgentGraphModel extends BaseChatModel {
     ];
   }
 
-  private serializeMessages(messages: BaseMessage[]): string {
+  /**
+   * 流式生成：调用 callApiStream 进行流式输出，完成后构建完整的 ChatResult。
+   * @param messages LangChain 消息列表
+   * @param onChunk 每收到一段文本时的回调
+   */
+  async streamGenerate(messages: BaseMessage[], onChunk: StreamChunkCallback): Promise<ChatResult> {
+    const fullPrompt = this.serializeMessages(messages);
+    const response = await this.callApiStream(fullPrompt, onChunk);
+
+    let { text, reasoning } = response;
+
+    // 1. 处理思考内容
+    if (!reasoning && text.includes('<think>')) {
+      const match = text.match(/<think>([\s\S]*?)<\/think>/);
+      if (match) {
+        reasoning = match[1].trim();
+        text = text.replace(/<think>[\s\S]*?<\/think>/, '').trim();
+      }
+    }
+
+    // 2. 解析工具调用
+    const toolCalls = this.parseToolCalls(text);
+
+    return {
+      generations: [
+        {
+          text,
+          message: new AIMessage({
+            content: text,
+            tool_calls: toolCalls,
+            additional_kwargs: {
+              reasoning: reasoning || '',
+              token: response.token,
+              duration: response.duration,
+            },
+            response_metadata: {
+              reasoning: reasoning || '',
+              token: response.token,
+              duration: response.duration,
+            },
+          }),
+        },
+      ],
+    };
+  }
+
+  public serializeMessages(messages: BaseMessage[]): string {
     const systemMsg = messages.find(m => m._getType() === 'system');
     const lastMsg = messages[messages.length - 1];
 

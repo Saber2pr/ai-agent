@@ -267,6 +267,7 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
         modelName: config.model,
         temperature: 0,
         maxTokens: this.maxTokens,
+        streaming: this.streamEnabled,
       });
     }
     this.model = modelInstance.bindTools(this.langchainTools);
