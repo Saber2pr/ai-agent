@@ -18,8 +18,7 @@ import { convertToLangChainTool } from '../utils/convertToLangChainTool';
 import { jsonSchemaToZod } from '../utils/jsonSchemaToZod';
 import { formatSchema } from '../utils/formatSchema';
 import { AgentGraphModel } from '../model/AgentGraphModel';
-
-export const CONFIG_FILE = path.join(os.homedir(), '.ai-agent.json');
+import { CONFIG_FILE } from '../config/config';
 
 // ✅ 全局设置：修复 AbortSignal 监听器数量警告
 // LangChain 的 HTTP 客户端会创建多个 AbortSignal，需要增加默认限制
