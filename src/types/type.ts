@@ -48,4 +48,6 @@ export interface GraphAgentOptions<T extends AgentGraphModel = any> extends Agen
   alwaysSystem?: boolean;
   recursionLimit?: number;
   maxTargetCount?: number;
+  /** 是否启用流式输出，默认 false */
+  stream?: boolean;
 }

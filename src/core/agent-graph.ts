@@ -6,7 +6,6 @@ import readline from 'readline';
 
 import { AIMessage, BaseMessage, HumanMessage } from '@langchain/core/messages';
 import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
-import { RunnableLike } from '@langchain/core/runnables';
 import { Annotation, END, MemorySaver, START, StateGraph } from '@langchain/langgraph';
 import { ToolNode } from '@langchain/langgraph/prebuilt';
 import { ChatOpenAI } from '@langchain/openai';
@@ -20,7 +19,7 @@ import { jsonSchemaToZod } from '../utils/jsonSchemaToZod';
 import { formatSchema } from '../utils/formatSchema';
 import { AgentGraphModel } from '../model/AgentGraphModel';
 
-export const CONFIG_FILE = path.join(os.homedir(), ".saber2pr-agent.json");
+export const CONFIG_FILE = path.join(os.homedir(), '.ai-agent.json');
 
 // ✅ 全局设置：修复 AbortSignal 监听器数量警告
 // LangChain 的 HTTP 客户端会创建多个 AbortSignal，需要增加默认限制
@@ -45,9 +44,9 @@ const AgentState = Annotation.Root({
     reducer: (x, y) => y ?? x,
     default: () => 4,
   }),
-  mode: Annotation<"chat" | "auto">({
+  mode: Annotation<'chat' | 'auto'>({
     reducer: (x, y) => y ?? x,
-    default: () => "chat",
+    default: () => 'chat',
   }),
   // ✅ Token 累加器
   tokenUsage: Annotation<TokenUsage>({
@@ -78,6 +77,7 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
   private maxTargetCount: number;
   private maxTokens: number;
   private mcpClients: Client[] = [];
+  private streamEnabled: boolean;
 
   constructor(options: GraphAgentOptions<T> = {}) {
     this.options = options;
@@ -88,6 +88,7 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
     this.apiConfig = options.apiConfig;
     this.maxTargetCount = options.maxTargetCount || 4;
     this.maxTokens = options.maxTokens || 8000;
+    this.streamEnabled = options.stream || false;
     process.setMaxListeners(100);
 
     // ✅ 修复 AbortSignal 监听器数量警告
@@ -102,19 +103,19 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
       process.exit(0);
     };
 
-    process.on("SIGINT", cleanup);
-    process.on("SIGTERM", cleanup);
+    process.on('SIGINT', cleanup);
+    process.on('SIGTERM', cleanup);
   }
 
   private printLoadedTools() {
-    console.log("\n🛠️  [Graph] 正在加载工具节点...");
+    console.log('\n🛠️  [Graph] 正在加载工具节点...');
 
     this.langchainTools.forEach((tool: any) => {
       // 工具名称
       console.log(`\n🧰 工具名: ${tool.name}`);
 
       // 提取参数结构 (LangChain Tool 的 schema 是 Zod 对象)
-      const schema = tool.schema;
+      const { schema } = tool;
 
       if (schema && schema.shape) {
         // 如果是 ZodObject，打印其内部 key
@@ -134,18 +135,17 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
   private loadMcpConfigs(): McpConfig {
     const combined: McpConfig = { mcpServers: {} };
     const paths = [
-      path.join(os.homedir(), ".cursor", "mcp.json"),
-      path.join(os.homedir(), ".vscode", "mcp.json"),
+      path.join(os.homedir(), '.cursor', 'mcp.json'),
+      path.join(os.homedir(), '.vscode', 'mcp.json'),
     ];
-    paths.forEach((p) => {
+    paths.forEach(p => {
       if (fs.existsSync(p)) {
-        const content = JSON.parse(fs.readFileSync(p, "utf-8"));
+        const content = JSON.parse(fs.readFileSync(p, 'utf-8'));
         Object.assign(combined.mcpServers, content.mcpServers);
       }
     });
     return combined;
   }
-
 
   private async initMcpTools() {
     const mcpConfig = this.loadMcpConfigs();
@@ -161,7 +161,7 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
         });
 
         const client = new Client(
-          { name: "mcp-graph-client", version: "1.0.0" },
+          { name: 'mcp-graph-client', version: '1.0.0' },
           { capabilities: {} }
         );
 
@@ -170,15 +170,15 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
 
         const { tools } = await client.listTools();
 
-        tools.forEach((tool) => {
+        tools.forEach(tool => {
           mcpToolInfos.push({
-            type: "function",
+            type: 'function',
             function: {
               name: tool.name,
               description: tool.description,
               parameters: jsonSchemaToZod(tool.inputSchema), // MCP 使用 JSON Schema
             },
-            _handler: async (args) => {
+            _handler: async args => {
               const result = await client.callTool({
                 name: tool.name,
                 arguments: args,
@@ -200,13 +200,9 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
     const mcpToolInfos = await this.initMcpTools();
 
     // 合并内置、手动传入和 MCP 工具
-    const allToolInfos = [
-      ...builtinToolInfos,
-      ...(this.options.tools || []),
-      ...mcpToolInfos
-    ];
+    const allToolInfos = [...builtinToolInfos, ...(this.options.tools || []), ...mcpToolInfos];
 
-    this.langchainTools = allToolInfos.map((t) => convertToLangChainTool(t));
+    this.langchainTools = allToolInfos.map(t => convertToLangChainTool(t));
     this.toolNode = new ToolNode(this.langchainTools);
   }
 
@@ -227,7 +223,9 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
   // ✅ 新增：关闭连接
   private async closeMcpClients() {
     for (const client of this.mcpClients) {
-      try { await client.close(); } catch (e) { }
+      try {
+        await client.close();
+      } catch (e) { }
     }
     this.mcpClients = [];
   }
@@ -280,35 +278,77 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
     if (this.apiConfig) return this.apiConfig;
     let config: any = {};
     if (fs.existsSync(CONFIG_FILE)) {
-      try { config = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf-8")); } catch (e) { }
+      try {
+        config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+      } catch (e) { }
     }
     if (!config.baseURL || !config.apiKey) {
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-      const question = (q: string) => new Promise<string>((res) => rl.question(q, res));
-      config.baseURL = config.baseURL || await question(`? API Base URL: `);
-      config.apiKey = config.apiKey || await question(`? API Key: `);
-      config.model = config.model || await question(`? Model Name: `) || "gpt-4o";
+      const question = (q: string) => new Promise<string>(res => rl.question(q, res));
+      config.baseURL = config.baseURL || (await question(`? API Base URL: `));
+      config.apiKey = config.apiKey || (await question(`? API Key: `));
+      config.model = config.model || (await question(`? Model Name: `)) || 'gpt-4o';
       fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
       rl.close();
     }
     return config;
   }
 
-  async chat(query: string = "开始代码审计") {
+  async chat(query = '开始代码审计') {
     try {
       await this.ensureInitialized();
       await this.getModel();
       const app = await this.createGraph();
-      const stream = await app.stream({
-        messages: [new HumanMessage(query)],
-        mode: "auto",
-        targetCount: this.maxTargetCount,
-      }, { configurable: { thread_id: "auto_worker" }, recursionLimit: this.recursionLimit, debug: this.verbose, });
+      const graphStream = await app.stream(
+        {
+          messages: [new HumanMessage(query)],
+          mode: 'auto',
+          targetCount: this.maxTargetCount,
+        },
+        {
+          configurable: { thread_id: 'auto_worker' },
+          recursionLimit: this.recursionLimit,
+          debug: this.verbose,
+        }
+      );
 
-      for await (const output of stream) this.renderOutput(output);
+      for await (const output of graphStream) this.renderOutput(output, this.streamEnabled);
     } catch (error) {
-      console.error("\n❌ Chat 过程中发生错误:", error);
+      console.error('\n❌ Chat 过程中发生错误:', error);
     } finally {
+      await this.closeMcpClients();
+    }
+  }
+
+  /**
+   * 流式执行单次查询（编程式 API）。
+   * 无论 options.stream 是否开启，此方法始终以流式方式输出。
+   */
+  async stream(query = '开始代码审计') {
+    const prevStream = this.streamEnabled;
+    this.streamEnabled = true;
+    try {
+      await this.ensureInitialized();
+      await this.getModel();
+      const app = await this.createGraph();
+      const graphStream = await app.stream(
+        {
+          messages: [new HumanMessage(query)],
+          mode: 'auto',
+          targetCount: this.maxTargetCount,
+        },
+        {
+          configurable: { thread_id: 'stream_worker' },
+          recursionLimit: this.recursionLimit,
+          debug: this.verbose,
+        }
+      );
+
+      for await (const output of graphStream) this.renderOutput(output, true);
+    } catch (error) {
+      console.error('\n❌ Stream 过程中发生错误:', error);
+    } finally {
+      this.streamEnabled = prevStream;
       await this.closeMcpClients();
     }
   }
@@ -319,7 +359,7 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
     const app = await this.createGraph();
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
-    rl.on("SIGINT", () => {
+    rl.on('SIGINT', () => {
       this.stopLoading();
       rl.close();
       process.stdout.write('\u001B[?25h');
@@ -327,20 +367,27 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
     });
 
     const ask = () => {
-      rl.question("> ", async (input) => {
-        if (input.toLowerCase() === "exit") { rl.close(); return; }
-        const stream = await app.stream(
-          { messages: [new HumanMessage(input)], mode: "chat" },
-          { configurable: { thread_id: "session" }, recursionLimit: this.recursionLimit, debug: this.verbose, }
+      rl.question('> ', async input => {
+        if (input.toLowerCase() === 'exit') {
+          rl.close();
+          return;
+        }
+        const graphStream = await app.stream(
+          { messages: [new HumanMessage(input)], mode: 'chat' },
+          {
+            configurable: { thread_id: 'session' },
+            recursionLimit: this.recursionLimit,
+            debug: this.verbose,
+          }
         );
-        for await (const output of stream) this.renderOutput(output);
+        for await (const output of graphStream) this.renderOutput(output, this.streamEnabled);
         ask();
       });
     };
     ask();
   }
 
-  private renderOutput(output: any) {
+  private renderOutput(output: any, isStreaming = false) {
     this.stopLoading(); // 停止加载动画
 
     const agentNode = output.agent;
@@ -364,14 +411,11 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
         const toolCallId = msg.tool_call_id || msg.id;
         if (toolCallId) {
           const toolName = toolCallMap.get(toolCallId) || msg.name || 'unknown';
-          const content = typeof msg.content === 'string'
-            ? msg.content
-            : JSON.stringify(msg.content);
+          const content =
+            typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
 
           // 如果内容太长，截断显示
-          const displayContent = content.length > 500
-            ? content.substring(0, 500) + '...'
-            : content;
+          const displayContent = content.length > 500 ? content.substring(0, 500) + '...' : content;
 
           console.log(`✅ [工具结果] ${toolName}: ${displayContent}`);
         }
@@ -381,13 +425,14 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
       const msg = agentNode.messages[agentNode.messages.length - 1] as AIMessage;
 
       // 1. 打印思考过程（如果有）
+      // 流式模式下思考内容可能已经随流输出，此处仅在非流式模式或有独立 reasoning 字段时打印
       const reasoning = msg.additional_kwargs?.reasoning as string;
-      if (reasoning) {
+      if (reasoning && !isStreaming) {
         console.log(`\n🧠 [思考]: ${reasoning}`);
       }
 
-      // 2. 打印 AI 回复内容
-      if (msg.content) {
+      // 2. 打印 AI 回复内容（流式模式下已在 callModel 中逐字输出，跳过）
+      if (msg.content && !isStreaming) {
         console.log(`🤖 [AI]: ${msg.content}`);
       }
 
@@ -405,7 +450,7 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
 
       // 4. 打印工具调用情况
       if (msg.tool_calls?.length) {
-        msg.tool_calls.forEach((call) => {
+        msg.tool_calls.forEach(call => {
           console.log(`🛠️ [调用工具]: ${call.name} 📦 参数: ${JSON.stringify(call.args)}`);
         });
       }
@@ -413,14 +458,16 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
   }
 
   async callModel(state: typeof AgentState.State) {
-    const auditedListStr = state.auditedFiles.length > 0
-      ? state.auditedFiles.map(f => `\n  - ${f}`).join("")
-      : "暂无";
+    const auditedListStr =
+      state.auditedFiles.length > 0 ? state.auditedFiles.map(f => `\n  - ${f}`).join('') : '暂无';
 
     const recentToolCalls = this.getRecentToolCalls(state.messages);
-    const recentToolCallsStr = recentToolCalls.length > 0
-      ? `\n\n⚠️ 最近调用的工具（避免重复调用相同工具和参数）：\n${recentToolCalls.map(tc => `  - ${tc.name}(${JSON.stringify(tc.args)})`).join("\n")}`
-      : "";
+    const recentToolCallsStr =
+      recentToolCalls.length > 0
+        ? `\n\n⚠️ 最近调用的工具（避免重复调用相同工具和参数）：\n${recentToolCalls
+          .map(tc => `  - ${tc.name}(${JSON.stringify(tc.args)})`)
+          .join('\n')}`
+        : '';
 
     // 1. 构建当前的系统提示词模板
     const systemPromptTemplate = `你是一个代码专家。工作目录：${this.targetDir}。
@@ -448,32 +495,135 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
     // ✅ 检查 options 中的 alwaysSystem 参数 (默认为 true 或根据你的需求设置)
     // 如果不希望每次都携带（即只在首轮携带），则过滤掉历史消息里的 SystemMessage
     if (this.options.alwaysSystem === false) {
-      inputMessages = state.messages.filter(msg => msg._getType() !== "system");
+      inputMessages = state.messages.filter(msg => msg._getType() !== 'system');
     } else {
       // 默认模式：保持干净，由 PromptTemplate 重新生成最新的 System 状态
-      inputMessages = state.messages.filter(msg => msg._getType() !== "system");
+      inputMessages = state.messages.filter(msg => msg._getType() !== 'system');
     }
 
     const prompt = ChatPromptTemplate.fromMessages([
-      ["system", systemPromptTemplate],
-      new MessagesPlaceholder("messages"),
+      ['system', systemPromptTemplate],
+      new MessagesPlaceholder('messages'),
     ]);
 
-    this.startLoading("AI 正在分析并思考中");
-
-
+    this.startLoading('AI 正在分析并思考中');
 
     try {
-      const chain = prompt.pipe(this.model);
-      const response = await chain.invoke({
-        messages: inputMessages, // ✅ 使用处理后的消息列表
+      const promptParams = {
+        messages: inputMessages,
         mode: state.mode,
         targetCount: state.targetCount,
         doneCount: state.auditedFiles.length,
         auditedList: auditedListStr,
         recentToolCalls: recentToolCallsStr,
-        extraPrompt: this.options.extraSystemPrompt || "",
-      });
+        extraPrompt: this.options.extraSystemPrompt || '',
+      };
+
+      if (this.streamEnabled) {
+        // ✅ 流式模式：通过 AgentGraphModel.streamGenerate 进行流式输出
+        const formattedMessages = await prompt.formatMessages(promptParams);
+        this.stopLoading();
+
+        // --- 流式 <think> 标签实时过滤 + 流式打印思考内容 ---
+        const THINK_OPEN = '<think>';
+        const THINK_CLOSE = '</think>';
+        let inThink = false;
+        let textBuffer = '';
+        let aiHeaderPrinted = false;
+        let thinkHeaderPrinted = false;
+
+        const flushText = (text: string) => {
+          if (!text) return;
+          if (!aiHeaderPrinted) {
+            process.stdout.write('🤖 [AI]: ');
+            aiHeaderPrinted = true;
+          }
+          process.stdout.write(text);
+        };
+
+        const flushThink = (text: string) => {
+          if (!text) return;
+          if (!thinkHeaderPrinted) {
+            process.stdout.write('\x1b[2m🧠 [思考]: ');
+            thinkHeaderPrinted = true;
+          }
+          process.stdout.write(text);
+        };
+
+        const onChunk = (chunk: string) => {
+          textBuffer += chunk;
+
+          let processing = true;
+          while (processing) {
+            if (inThink) {
+              // 在 <think> 块内，寻找 </think>
+              const closeIdx = textBuffer.indexOf(THINK_CLOSE);
+              if (closeIdx !== -1) {
+                // 流式打印 </think> 之前的思考内容
+                flushThink(textBuffer.slice(0, closeIdx));
+                textBuffer = textBuffer.slice(closeIdx + THINK_CLOSE.length);
+                inThink = false;
+                // 思考块结束：换行 + 重置样式
+                if (thinkHeaderPrinted) {
+                  process.stdout.write('\x1b[0m\n');
+                  thinkHeaderPrinted = false;
+                }
+              } else {
+                // 未找到闭合标签，安全输出可确认部分（防止 </think> 跨 chunk 截断）
+                const safeLen = Math.max(0, textBuffer.length - (THINK_CLOSE.length - 1));
+                flushThink(textBuffer.slice(0, safeLen));
+                textBuffer = textBuffer.slice(safeLen);
+                processing = false;
+              }
+            } else {
+              // 不在 <think> 块内，寻找 <think>
+              const openIdx = textBuffer.indexOf(THINK_OPEN);
+              if (openIdx !== -1) {
+                flushText(textBuffer.slice(0, openIdx));
+                textBuffer = textBuffer.slice(openIdx + THINK_OPEN.length);
+                inThink = true;
+              } else {
+                // 未找到开启标签，安全输出可确认部分（防止 <think> 跨 chunk 截断）
+                const safeLen = Math.max(0, textBuffer.length - (THINK_OPEN.length - 1));
+                flushText(textBuffer.slice(0, safeLen));
+                textBuffer = textBuffer.slice(safeLen);
+                processing = false;
+              }
+            }
+          }
+        };
+
+        const result = await (this.model as any).streamGenerate(formattedMessages, onChunk);
+
+        // 刷新残留缓冲
+        if (textBuffer) {
+          if (inThink) {
+            flushThink(textBuffer);
+          } else {
+            flushText(textBuffer);
+          }
+        }
+        // 收尾：关闭思考块样式 / AI 输出换行
+        if (thinkHeaderPrinted) {
+          process.stdout.write('\x1b[0m\n');
+        }
+        if (aiHeaderPrinted) process.stdout.write('\n');
+
+        const aiMsg = result.generations[0].message as AIMessage;
+        const meta = aiMsg.response_metadata || {};
+        const currentToken = Number(meta.token) || 0;
+        const currentDuration = Number(meta.duration) || 0;
+
+        return {
+          messages: [aiMsg],
+          tokenUsage: { total: currentToken },
+          totalDuration: currentDuration,
+        };
+      }
+
+      // 非流式模式（原有逻辑）
+      const chain = prompt.pipe(this.model);
+      const response = await chain.invoke(promptParams);
 
       this.stopLoading();
 
@@ -484,7 +634,7 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
       return {
         messages: [response],
         tokenUsage: { total: currentToken },
-        totalDuration: currentDuration
+        totalDuration: currentDuration,
       };
     } catch (error) {
       this.stopLoading();
@@ -492,7 +642,7 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
     }
   }
 
-  private getRecentToolCalls(messages: BaseMessage[], limit: number = 5) {
+  private getRecentToolCalls(messages: BaseMessage[], limit = 5) {
     const toolCalls: Array<{ name: string; args: any }> = [];
 
     // 从后往前遍历消息，收集最近的工具调用
@@ -530,48 +680,49 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
     const totalMs = state.totalDuration || 0;
 
     if (totalTokens > 0 || totalMs > 0) {
-      console.log("\n" + "═".repeat(50));
+      console.log('\n' + '═'.repeat(50));
       console.log(`🏁 \x1b[32;1m[审计任务全量结算]\x1b[0m`);
       console.log(`   - 累计消耗总额: \x1b[33m${totalTokens}\x1b[0m Tokens`);
       console.log(`   - 累计执行耗时: \x1b[36m${(totalMs / 1000).toFixed(2)}\x1b[0m s`);
       console.log(`   - 审计文件总数: ${state.auditedFiles.length} 个`);
-      console.log("═".repeat(50) + "\n");
+      console.log('═'.repeat(50) + '\n');
     }
   }
 
   async createGraph() {
     const workflow = new StateGraph(AgentState)
-      .addNode("agent", (state) => this.callModel(state))
-      .addNode("tools", this.toolNode)
-      .addNode("progress", (state) => this.trackProgress(state))
-      .addEdge(START, "agent")
-      .addConditionalEdges("agent", (state) => {
-        const messages = state.messages;
+      .addNode('agent', state => this.callModel(state))
+      .addNode('tools', this.toolNode)
+      .addNode('progress', state => this.trackProgress(state))
+      .addEdge(START, 'agent')
+      .addConditionalEdges('agent', state => {
+        const { messages } = state;
         const lastMsg = messages[messages.length - 1] as AIMessage;
-        const content = (lastMsg.content as string) || "";
+        const content = (lastMsg.content as string) || '';
 
         // 🛑 新增：全局 Token 熔断保护
         // 如果已消耗 Token 超过了 options 中设置的 maxTokens (假设是总限额)
         if (this.options.maxTokens && state.tokenUsage.total >= this.options.maxTokens) {
-          console.warn("⚠️ [警告] 已达到最大 Token 限制，强制结束任务。");
+          console.warn('⚠️ [警告] 已达到最大 Token 限制，强制结束任务。');
           this.printFinalSummary(state);
           return END;
         }
 
         // 1. 如果 AI 想要调用工具，去 tools 节点
         if (lastMsg.tool_calls && lastMsg.tool_calls.length > 0) {
-          return "tools";
+          return 'tools';
         }
 
         // 2. 判定结束的条件：
         // - 模式是 auto 且审计完成
         // - 或者 AI 明确输出了结束语
         // - 或者 AI 输出了普通内容且没有工具调用（针对问答模式）
-        const isAutoFinished = state.mode === "auto" && state.auditedFiles.length > state.targetCount;
-        const isFinalAnswer = content.includes("Final Answer");
+        const isAutoFinished =
+          state.mode === 'auto' && state.auditedFiles.length > state.targetCount;
+        const isFinalAnswer = content.includes('Final Answer');
 
         // ✅ 修复核心：如果 AI 只是在聊天（没有工具调用），直接结束，不要跳回 agent
-        if (isAutoFinished || isFinalAnswer || state.mode === "chat") {
+        if (isAutoFinished || isFinalAnswer || state.mode === 'chat') {
           this.printFinalSummary(state);
           return END;
         }
@@ -579,8 +730,8 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
         // 兜底：如果是在 auto 模式且还没干完活，才跳回 agent（通常不会走到这里）
         return END;
       })
-      .addEdge("tools", "progress")
-      .addEdge("progress", "agent");
+      .addEdge('tools', 'progress')
+      .addEdge('progress', 'agent');
 
     return workflow.compile({ checkpointer: this.checkpointer });
   }
