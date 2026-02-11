@@ -2,5 +2,7 @@
 
 import McpGraphAgent from './core/agent-graph';
 
-const agent = new McpGraphAgent();
+const agent = new McpGraphAgent({
+  stream: true,
+});
 agent.start();
