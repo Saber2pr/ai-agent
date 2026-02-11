@@ -77,6 +77,7 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
   private maxTokens: number;
   private mcpClients: Client[] = [];
   private streamEnabled: boolean;
+  private streamOutputCallback: ((chunk: string, type: 'think' | 'text') => void) | null = null;
 
   constructor(options: GraphAgentOptions<T> = {}) {
     this.options = options;
@@ -104,6 +105,21 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
 
     process.on('SIGINT', cleanup);
     process.on('SIGTERM', cleanup);
+  }
+
+  /**
+   * 设置外部流式输出回调（如 VS Code Webview）。
+   * 设置后，callModel 的流式输出将通过回调发送而非写入 stdout。
+   */
+  setStreamOutput(callback: (chunk: string, type: 'think' | 'text') => void) {
+    this.streamOutputCallback = callback;
+  }
+
+  /**
+   * 清除外部流式输出回调，恢复默认的 stdout 输出。
+   */
+  clearStreamOutput() {
+    this.streamOutputCallback = null;
   }
 
   private printLoadedTools() {
@@ -532,22 +548,32 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
         let aiHeaderPrinted = false;
         let thinkHeaderPrinted = false;
 
+        const hasExternalHandler = !!this.streamOutputCallback;
+
         const flushText = (text: string) => {
           if (!text) return;
-          if (!aiHeaderPrinted) {
-            process.stdout.write('🤖 [AI]: ');
-            aiHeaderPrinted = true;
+          if (hasExternalHandler) {
+            this.streamOutputCallback!(text, 'text');
+          } else {
+            if (!aiHeaderPrinted) {
+              process.stdout.write('🤖 [AI]: ');
+              aiHeaderPrinted = true;
+            }
+            process.stdout.write(text);
           }
-          process.stdout.write(text);
         };
 
         const flushThink = (text: string) => {
           if (!text) return;
-          if (!thinkHeaderPrinted) {
-            process.stdout.write('\x1b[2m🧠 [思考]: ');
-            thinkHeaderPrinted = true;
+          if (hasExternalHandler) {
+            this.streamOutputCallback!(text, 'think');
+          } else {
+            if (!thinkHeaderPrinted) {
+              process.stdout.write('\x1b[2m🧠 [思考]: ');
+              thinkHeaderPrinted = true;
+            }
+            process.stdout.write(text);
           }
-          process.stdout.write(text);
         };
 
         const onChunk = (chunk: string) => {
@@ -563,8 +589,8 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
                 flushThink(textBuffer.slice(0, closeIdx));
                 textBuffer = textBuffer.slice(closeIdx + THINK_CLOSE.length);
                 inThink = false;
-                // 思考块结束：换行 + 重置样式
-                if (thinkHeaderPrinted) {
+                // 思考块结束：stdout 模式下换行 + 重置样式
+                if (!hasExternalHandler && thinkHeaderPrinted) {
                   process.stdout.write('\x1b[0m\n');
                   thinkHeaderPrinted = false;
                 }
@@ -603,11 +629,13 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
             flushText(textBuffer);
           }
         }
-        // 收尾：关闭思考块样式 / AI 输出换行
-        if (thinkHeaderPrinted) {
-          process.stdout.write('\x1b[0m\n');
+        // 收尾：stdout 模式下关闭样式和换行
+        if (!hasExternalHandler) {
+          if (thinkHeaderPrinted) {
+            process.stdout.write('\x1b[0m\n');
+          }
+          if (aiHeaderPrinted) process.stdout.write('\n');
         }
-        if (aiHeaderPrinted) process.stdout.write('\n');
 
         const aiMsg = result.generations[0].message as AIMessage;
         const meta = aiMsg.response_metadata || {};
