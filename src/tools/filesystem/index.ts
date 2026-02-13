@@ -193,10 +193,7 @@ export const getFilesystemTools = (targetDir: string) => {
   const createDirectoryTool = createTool({
     name: 'create_directory',
     description:
-      'Create a new directory or ensure a directory exists. Can create multiple ' +
-      'nested directories in one operation. If the directory already exists, ' +
-      'this operation will succeed silently. Perfect for setting up directory ' +
-      'structures for projects or ensuring required paths exist. Only works within allowed directories.',
+      '递归创建目录。支持多级嵌套。若目录已存在则静默成功。仅限允许目录。',
     parameters: CreateDirectoryArgsSchema,
     handler: async args => {
       const validPath = await validatePath(targetDir, args.path);
@@ -209,10 +206,7 @@ export const getFilesystemTools = (targetDir: string) => {
   const listDirectoryWithSizesTool = createTool({
     name: 'list_directory',
     description:
-      'Get a detailed listing of all files and directories in a specified path, including sizes. ' +
-      'Results clearly distinguish between files and directories with [FILE] and [DIR] ' +
-      'prefixes. This tool is useful for understanding directory structure and ' +
-      'finding specific files within a directory. Only works within allowed directories.',
+      '列出目录内容。返回带 [FILE]/[DIR] 前缀的条目、大小及汇总。支持按名称或大小排序。',
     parameters: ListDirectoryWithSizesArgsSchema,
     handler: async (args: z.infer<typeof ListDirectoryWithSizesArgsSchema>) => {
       const validPath = await validatePath(targetDir, args.path);
@@ -334,10 +328,7 @@ export const getFilesystemTools = (targetDir: string) => {
   const moveFileTool = createTool({
     name: 'move_file',
     description:
-      'Move or rename files and directories. Can move files between directories ' +
-      'and rename them in a single operation. If the destination exists, the ' +
-      'operation will fail. Works across different directories and can be used ' +
-      'for simple renaming within the same directory. Both source and destination must be within allowed directories.',
+      '移动或重命名文件/目录。目标路径若已存在则失败。源与目标均须在允许目录内。',
     parameters: MoveFileArgsSchema,
     handler: async (args: z.infer<typeof MoveFileArgsSchema>) => {
       const validSourcePath = await validatePath(targetDir, args.source);
@@ -351,9 +342,7 @@ export const getFilesystemTools = (targetDir: string) => {
   const searchFilesTool = createTool({
     name: 'search_files',
     description:
-      'Search for files matching a specific pattern in a specified path. ' +
-      'Returns a list of files that match the pattern. Only works within allowed directories.' +
-      'Used only for filename search',
+      '在指定路径下搜索匹配模式的文件名。返回匹配的相对路径列表。',
     parameters: SearchFilesArgsSchema,
     handler: async (args: z.infer<typeof SearchFilesArgsSchema>) => {
       const combinedExcludes = [...DEFAULT_IGNORE, ...(args.excludePatterns || [])];
