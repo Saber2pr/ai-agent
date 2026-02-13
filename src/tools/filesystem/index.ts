@@ -351,17 +351,27 @@ export const getFilesystemTools = (targetDir: string) => {
 
   const getFileInfoTool = createTool({
     name: 'get_file_info',
-    description:
-      'Get detailed information about a file, including its size, last modified time, and type. ' +
-      'Only works within allowed directories.',
+    description: '查看文件元数据（大小、行数、修改时间）。读取大文件前务必先调用此工具。',
     parameters: GetFileInfoArgsSchema,
     handler: async (args: z.infer<typeof GetFileInfoArgsSchema>) => {
       const validPath = await validatePath(targetDir, args.path);
-      const info = await getFileStats(validPath);
-      const text = Object.entries(info)
+      const stats = await fs.stat(validPath);
+
+      // 计算行数：读取内容并按换行符分割
+      // 注意：对于极大的文件，这种方式可能稍慢，但对普通源代码文件非常有效
+      const content = await fs.readFile(validPath, 'utf-8');
+      const lineCount = content.split('\n').length;
+
+      const info = {
+        size: `${(stats.size / 1024).toFixed(2)} KB`,
+        lineCount: lineCount, // 新增行号字段
+        mtime: stats.mtime.toLocaleString(),
+        type: path.extname(validPath) || 'unknown'
+      };
+
+      return Object.entries(info)
         .map(([key, value]) => `${key}: ${value}`)
         .join('\n');
-      return text;
     },
   });
 
