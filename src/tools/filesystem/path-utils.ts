@@ -43,14 +43,14 @@ export function normalizePath(p: string): string {
   // Check if this is a Unix path that should not be converted
   // WSL paths (/mnt/) should ALWAYS be preserved as they work correctly in WSL with Node.js fs
   // Regular Unix paths should also be preserved
-  const isUnixPath = p.startsWith('/') && (
+  const isUnixPath =
+    p.startsWith('/') &&
     // Always preserve WSL paths (/mnt/c/, /mnt/d/, etc.)
-    p.match(/^\/mnt\/[a-z]\//i) ||
-    // On non-Windows platforms, treat all absolute paths as Unix paths
-    (process.platform !== 'win32') ||
-    // On Windows, preserve Unix paths that aren't Unix-style Windows paths (/c/, /d/, etc.)
-    (process.platform === 'win32' && !p.match(/^\/[a-zA-Z]\//))
-  );
+    (p.match(/^\/mnt\/[a-z]\//i) ||
+      // On non-Windows platforms, treat all absolute paths as Unix paths
+      process.platform !== 'win32' ||
+      // On Windows, preserve Unix paths that aren't Unix-style Windows paths (/c/, /d/, etc.)
+      (process.platform === 'win32' && !p.match(/^\/[a-zA-Z]\//)));
 
   if (isUnixPath) {
     // For Unix paths, just normalize without converting to Windows format

@@ -2,7 +2,6 @@ import { randomBytes } from 'crypto';
 import { createTwoFilesPatch } from 'diff';
 import fs from 'fs/promises';
 import { minimatch } from 'minimatch';
-import os from 'os';
 import path from 'path';
 
 import { expandHome, normalizePath } from './path-utils.js';
@@ -58,7 +57,11 @@ export function normalizeLineEndings(text: string): string {
   return text.replace(/\r\n/g, '\n');
 }
 
-export function createUnifiedDiff(originalContent: string, newContent: string, filepath: string = 'file'): string {
+export function createUnifiedDiff(
+  originalContent: string,
+  newContent: string,
+  filepath = 'file'
+): string {
   // Ensure consistent line endings for diff
   const normalizedOriginal = normalizeLineEndings(originalContent);
   const normalizedNew = normalizeLineEndings(newContent);
@@ -85,7 +88,11 @@ export async function validatePath(cwd: string, requestedPath: string): Promise<
   // Security: Check if path is within allowed directories before any file operations
   const isAllowed = isPathWithinAllowedDirectories(normalizedRequested, allowedDirectories);
   if (!isAllowed) {
-    throw new Error(`Access denied - path outside allowed directories: ${absolute} not in ${allowedDirectories.join(', ')}`);
+    throw new Error(
+      `Access denied - path outside allowed directories: ${absolute} not in ${allowedDirectories.join(
+        ', '
+      )}`
+    );
   }
 
   // Security: Handle symlinks by checking their real path to prevent symlink attacks
@@ -94,7 +101,11 @@ export async function validatePath(cwd: string, requestedPath: string): Promise<
     const realPath = await fs.realpath(absolute);
     const normalizedReal = normalizePath(realPath);
     if (!isPathWithinAllowedDirectories(normalizedReal, allowedDirectories)) {
-      throw new Error(`Access denied - symlink target outside allowed directories: ${realPath} not in ${allowedDirectories.join(', ')}`);
+      throw new Error(
+        `Access denied - symlink target outside allowed directories: ${realPath} not in ${allowedDirectories.join(
+          ', '
+        )}`
+      );
     }
     return realPath;
   } catch (error) {
@@ -106,7 +117,11 @@ export async function validatePath(cwd: string, requestedPath: string): Promise<
         const realParentPath = await fs.realpath(parentDir);
         const normalizedParent = normalizePath(realParentPath);
         if (!isPathWithinAllowedDirectories(normalizedParent, allowedDirectories)) {
-          throw new Error(`Access denied - parent directory outside allowed directories: ${realParentPath} not in ${allowedDirectories.join(', ')}`);
+          throw new Error(
+            `Access denied - parent directory outside allowed directories: ${realParentPath} not in ${allowedDirectories.join(
+              ', '
+            )}`
+          );
         }
         return absolute;
       } catch {
@@ -116,7 +131,6 @@ export async function validatePath(cwd: string, requestedPath: string): Promise<
     throw error;
   }
 }
-
 
 // File Operations
 export async function getFileStats(filePath: string): Promise<FileInfo> {
@@ -132,7 +146,7 @@ export async function getFileStats(filePath: string): Promise<FileInfo> {
   };
 }
 
-export async function readFileContent(filePath: string, encoding: string = 'utf-8'): Promise<string> {
+export async function readFileContent(filePath: string, encoding = 'utf-8'): Promise<string> {
   return await fs.readFile(filePath, encoding as BufferEncoding);
 }
 
@@ -140,7 +154,7 @@ export async function writeFileContent(filePath: string, content: string): Promi
   try {
     // Security: 'wx' flag ensures exclusive creation - fails if file/symlink exists,
     // preventing writes through pre-existing symlinks
-    await fs.writeFile(filePath, content, { encoding: "utf-8", flag: 'wx' });
+    await fs.writeFile(filePath, content, { encoding: 'utf-8', flag: 'wx' });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
       // Security: Use atomic rename to prevent race conditions where symlinks
@@ -162,7 +176,6 @@ export async function writeFileContent(filePath: string, content: string): Promi
   }
 }
 
-
 // File Editing Functions
 interface FileEdit {
   oldText: string;
@@ -172,7 +185,7 @@ interface FileEdit {
 export async function applyFileEdits(
   filePath: string,
   edits: FileEdit[],
-  dryRun: boolean = false
+  dryRun = false
 ): Promise<string> {
   // Read file content and normalize line endings
   const content = normalizeLineEndings(await fs.readFile(filePath, 'utf-8'));
@@ -272,7 +285,7 @@ export async function tailFile(filePath: string, numLines: number): Promise<stri
   try {
     const lines: string[] = [];
     let position = fileSize;
-    let chunk = Buffer.alloc(CHUNK_SIZE);
+    const chunk = Buffer.alloc(CHUNK_SIZE);
     let linesFound = 0;
     let remainingText = '';
 
@@ -392,3 +405,37 @@ export async function searchFilesWithValidation(
   await search(rootPath);
   return results;
 }
+
+export const isBinaryOrIrrelevant = (filePath: string): boolean => {
+  const ext = path.extname(filePath).toLowerCase();
+  
+  // 1. 常见的二进制媒体/资源格式
+  const binaryExtensions = new Set([
+    // 图片
+    '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico', '.tiff',
+    // 字体
+    '.ttf', '.otf', '.woff', '.woff2', '.eot',
+    // 压缩包
+    '.zip', '.tar', '.gz', '.7z', '.rar',
+    // 编译产物/执行文件
+    '.exe', '.dll', '.so', '.dylib', '.bin', '.obj', '.pyc', '.pyo', '.class',
+    // 音视频
+    '.mp3', '.mp4', '.mov', '.wav', '.flv', '.wmv',
+    // 文档 (虽然是文档，但通常是二进制格式)
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'
+  ]);
+
+  if (binaryExtensions.has(ext)) return true;
+
+  // 2. 干扰性极强的非二进制文件 (Source Maps 等)
+  const noiseExtensions = new Set([
+    '.map',       // 源代码映射文件，极长且无意义
+    '.lock',      // package-lock.json, yarn.lock 等锁定文件 (可选，如果 AI 不需要分析版本)
+    '.pyc',
+    '.DS_Store'
+  ]);
+
+  if (noiseExtensions.has(ext)) return true;
+
+  return false;
+};

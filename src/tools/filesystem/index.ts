@@ -8,6 +8,7 @@ import {
   formatSize,
   getFileStats,
   headFile,
+  isBinaryOrIrrelevant,
   readFileContent,
   searchFilesWithValidation,
   setAllowedDirectories,
@@ -15,6 +16,17 @@ import {
   validatePath,
   writeFileContent,
 } from './lib';
+
+const DEFAULT_IGNORE = [
+  'node_modules/**',
+  '.git/**',
+  'dist/**',
+  'build/**',
+  '.next/**',
+  'out/**',
+  '*.log',
+  '.DS_Store'
+];
 
 // Schema definitions
 const ReadTextFileArgsSchema = z.object({
@@ -271,6 +283,10 @@ export const getFilesystemTools = (targetDir: string) => {
       '默认仅展示 2 层深度以节省 Token。如果需要看更深层级，请调大 depth 参数。',
     parameters: DirectoryTreeArgsSchema,
     handler: async (args: z.infer<typeof DirectoryTreeArgsSchema>) => {
+      // 在 directory_tree 的 handler 内部
+      const combinedExcludes = [...DEFAULT_IGNORE, ...(args.excludePatterns || [])];
+      // 在循环中使用 combinedExcludes 过滤
+
       interface TreeEntry {
         name: string;
         type: 'file' | 'directory';
@@ -310,7 +326,7 @@ export const getFilesystemTools = (targetDir: string) => {
         return result;
       }
 
-      const treeData = await buildTree(rootPath, 1, args.depth, args.excludePatterns);
+      const treeData = await buildTree(rootPath, 1, args.depth, combinedExcludes);
       return JSON.stringify(treeData, null, 2);
     },
   });
@@ -340,9 +356,10 @@ export const getFilesystemTools = (targetDir: string) => {
       'Used only for filename search',
     parameters: SearchFilesArgsSchema,
     handler: async (args: z.infer<typeof SearchFilesArgsSchema>) => {
+      const combinedExcludes = [...DEFAULT_IGNORE, ...(args.excludePatterns || [])];
       const validPath = await validatePath(targetDir, args.path);
       const results = await searchFilesWithValidation(targetDir, validPath, args.pattern, [targetDir], {
-        excludePatterns: ['node_modules', ...(args?.excludePatterns || [])],
+        excludePatterns: combinedExcludes,
       });
       const text = results.length > 0 ? results.join('\n') : 'No matches found';
       return text;
@@ -404,6 +421,8 @@ export const getFilesystemTools = (targetDir: string) => {
             try {
               const stats = await fs.stat(filePath);
               if (!stats.isFile()) return;
+              // 在 grep_search 扫描文件时增加判断
+              if (isBinaryOrIrrelevant(path.extname(filePath))) return;
 
               const content = await readFileContent(filePath);
               if (content.includes(args.query)) {

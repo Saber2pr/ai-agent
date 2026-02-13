@@ -14,9 +14,10 @@ import type { Root } from '@modelcontextprotocol/sdk/types.js';
 async function parseRootUri(rootUri: string): Promise<string | null> {
   try {
     const rawPath = rootUri.startsWith('file://') ? rootUri.slice(7) : rootUri;
-    const expandedPath = rawPath.startsWith('~/') || rawPath === '~'
-      ? path.join(os.homedir(), rawPath.slice(1))
-      : rawPath;
+    const expandedPath =
+      rawPath.startsWith('~/') || rawPath === '~'
+        ? path.join(os.homedir(), rawPath.slice(1))
+        : rawPath;
     const absolutePath = path.resolve(expandedPath);
     const resolvedPath = await fs.realpath(absolutePath);
     return normalizePath(resolvedPath);
@@ -42,23 +43,23 @@ function formatDirectoryError(dir: string, error?: unknown, reason?: string): st
 
 /**
  * Resolves requested root directories from MCP root specifications.
- * 
+ *
  * Converts root URI specifications (file:// URIs or plain paths) into normalized
  * directory paths, validating that each path exists and is a directory.
  * Includes symlink resolution for security.
- * 
+ *
  * @param requestedRoots - Array of root specifications with URI and optional name
  * @returns Promise resolving to array of validated directory paths
  */
-export async function getValidRootDirectories(
-  requestedRoots: readonly Root[]
-): Promise<string[]> {
+export async function getValidRootDirectories(requestedRoots: readonly Root[]): Promise<string[]> {
   const validatedDirectories: string[] = [];
 
   for (const requestedRoot of requestedRoots) {
     const resolvedPath = await parseRootUri(requestedRoot.uri);
     if (!resolvedPath) {
-      console.error(formatDirectoryError(requestedRoot.uri, undefined, 'invalid path or inaccessible'));
+      console.error(
+        formatDirectoryError(requestedRoot.uri, undefined, 'invalid path or inaccessible')
+      );
       continue;
     }
 
