@@ -219,6 +219,13 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
 
     this.langchainTools = allToolInfos.map(t => convertToLangChainTool(t));
     this.toolNode = new ToolNode(this.langchainTools);
+
+    return {
+      builtinToolInfos,
+      mcpToolInfos,
+      tools: this.options.tools,
+      langchainTools: this.langchainTools,
+    }
   }
 
   // ✅ 修改：初始化逻辑
@@ -226,13 +233,19 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
     if (this.model && this.langchainTools.length > 0) return;
 
     // 1. 加载所有工具（含 MCP）
-    await this.prepareTools();
+    const toolsInfo = await this.prepareTools();
 
     // 2. 初始化模型
-    await this.getModel();
+    const apiModel = await this.getModel();
+
+    if (toolsInfo.mcpToolInfos && apiModel.setMcpTools) {
+      apiModel.setMcpTools(toolsInfo.mcpToolInfos);
+    }
 
     // 3. 打印工具状态
     this.printLoadedTools();
+
+    return apiModel;
   }
 
   // ✅ 新增：关闭连接
@@ -272,7 +285,7 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
     }
   }
 
-  async getModel() {
+  private async getModel() {
     if (this.model) return this.model;
     let modelInstance: any = this.options.apiModel;
     if (!modelInstance) {
@@ -313,7 +326,6 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
   async chat(query = '开始代码审计') {
     try {
       await this.ensureInitialized();
-      await this.getModel();
       const app = await this.createGraph();
       const graphStream = await app.stream(
         {
@@ -345,7 +357,6 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
     this.streamEnabled = true;
     try {
       await this.ensureInitialized();
-      await this.getModel();
       const app = await this.createGraph();
       const graphStream = await app.stream(
         {
@@ -371,7 +382,6 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
 
   async start() {
     await this.ensureInitialized();
-    await this.getModel();
     const app = await this.createGraph();
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 

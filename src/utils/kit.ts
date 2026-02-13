@@ -1,0 +1,1 @@
+export const getArray = <T = any>(array: T[]) => (Array.isArray(array) ? array : []);

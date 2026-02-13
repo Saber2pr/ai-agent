@@ -3,6 +3,7 @@ import { AIMessage, BaseMessage } from '@langchain/core/messages';
 import { ChatResult } from '@langchain/core/outputs';
 import { convertToOpenAITool } from '@langchain/core/utils/function_calling';
 import { cleanToolDefinition } from '../utils/cleanToolDefinition';
+import { getArray } from '../utils/kit';
 
 export interface AgentGraphLLMResponse {
   text: string;
@@ -16,6 +17,21 @@ export type StreamChunkCallback = (chunk: string) => void;
 
 export abstract class AgentGraphModel extends BaseChatModel {
   protected boundTools?: any[];
+  private mcpEnabled?: boolean = true
+  private mcpTools?: any[] = []
+
+  setMcpTools(tools: any[]) {
+    this.mcpTools = tools
+  }
+
+  setMcpEnabled(enabled = true) {
+    this.mcpEnabled = enabled
+  }
+
+  private isMcpTool(tool: any): boolean {
+    const mcpTools = getArray(this.mcpTools)
+    return mcpTools.some(t => t?.function?.name === tool?.function?.name)
+  }
 
   constructor(fields?: BaseChatModelParams) {
     super(fields || {});
@@ -27,7 +43,7 @@ export abstract class AgentGraphModel extends BaseChatModel {
   }
 
   // 子类只需实现这个方法，返回 fetch 的配置或直接返回响应
-  abstract callApi(prompt: string): Promise<AgentGraphLLMResponse>;
+  abstract callApi(prompt: string, lastMsg: BaseMessage): Promise<AgentGraphLLMResponse>;
 
   /**
    * 流式调用 API，子类可覆盖以实现真正的 SSE 流式传输。
@@ -36,15 +52,16 @@ export abstract class AgentGraphModel extends BaseChatModel {
    * @param onChunk 每收到一段文本时的回调
    * @returns 完整的响应结果
    */
-  async callApiStream(prompt: string, onChunk: StreamChunkCallback): Promise<AgentGraphLLMResponse> {
-    const result = await this.callApi(prompt);
+  async callApiStream(prompt: string, lastMsg: BaseMessage, onChunk: StreamChunkCallback): Promise<AgentGraphLLMResponse> {
+    const result = await this.callApi(prompt, lastMsg);
     onChunk(result.text);
     return result;
   }
 
   async _generate(messages: BaseMessage[]): Promise<ChatResult> {
     const fullPrompt = this.serializeMessages(messages);
-    const response = await this.callApi(fullPrompt);
+    const lastMsg = messages[messages.length - 1];
+    const response = await this.callApi(fullPrompt, lastMsg);
 
     let { text, reasoning } = response;
 
@@ -135,7 +152,8 @@ export abstract class AgentGraphModel extends BaseChatModel {
    */
   async streamGenerate(messages: BaseMessage[], onChunk: StreamChunkCallback): Promise<ChatResult> {
     const fullPrompt = this.serializeMessages(messages);
-    const response = await this.callApiStream(fullPrompt, onChunk);
+    const lastMsg = messages[messages.length - 1];
+    const response = await this.callApiStream(fullPrompt, lastMsg, onChunk);
 
     let { text, reasoning } = response;
 
@@ -184,8 +202,9 @@ export abstract class AgentGraphModel extends BaseChatModel {
       return `${m._getType().toUpperCase()}: ${content}`;
     };
 
-    const toolsContext = this.boundTools
-      ? `\n[Tools]\n${JSON.stringify(this.boundTools.map(cleanToolDefinition), null, 2)}`
+    const tools = this.mcpEnabled ? getArray(this.boundTools) : getArray(this.boundTools).filter(tool => !this.isMcpTool(tool))
+    const toolsContext = tools.length
+      ? `\n[Tools]\n${JSON.stringify(tools.map(cleanToolDefinition), null, 2)}`
       : '';
 
     return `
