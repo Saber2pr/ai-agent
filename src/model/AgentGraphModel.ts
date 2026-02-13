@@ -27,6 +27,12 @@ export abstract class AgentGraphModel extends BaseChatModel {
   setMcpEnabled(enabled = true) {
     this.mcpEnabled = enabled
   }
+  getMcpEnabled() {
+    return this.mcpEnabled
+  }
+  getMcpTools() {
+    return this.mcpTools
+  }
 
   private isMcpTool(tool: any): boolean {
     const mcpTools = getArray(this.mcpTools)
@@ -202,7 +208,7 @@ export abstract class AgentGraphModel extends BaseChatModel {
       return `${m._getType().toUpperCase()}: ${content}`;
     };
 
-    const tools = this.mcpEnabled ? getArray(this.boundTools) : getArray(this.boundTools).filter(tool => !this.isMcpTool(tool))
+    const tools = this.getMcpEnabled() ? getArray(this.boundTools) : getArray(this.boundTools).filter(tool => !this.isMcpTool(tool))
     const toolsContext = tools.length
       ? `\n[Tools]\n${JSON.stringify(tools.map(cleanToolDefinition), null, 2)}`
       : '';
