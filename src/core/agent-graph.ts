@@ -35,18 +35,6 @@ const AgentState = Annotation.Root({
     reducer: (x, y) => x.concat(y),
     default: () => [],
   }),
-  auditedFiles: Annotation<string[]>({
-    reducer: (x, y) => Array.from(new Set([...x, ...y])),
-    default: () => [],
-  }),
-  targetCount: Annotation<number>({
-    reducer: (x, y) => y ?? x,
-    default: () => 4,
-  }),
-  mode: Annotation<'chat' | 'auto'>({
-    reducer: (x, y) => y ?? x,
-    default: () => 'chat',
-  }),
   // ✅ Token 累加器
   tokenUsage: Annotation<TokenUsage>({
     reducer: (x, y) => ({
@@ -73,7 +61,6 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
   private alwaysSystem: boolean;
   private recursionLimit: number;
   private apiConfig: ApiConfig;
-  private maxTargetCount: number;
   private maxTokens: number;
   private mcpClients: Client[] = [];
   private streamEnabled: boolean;
@@ -86,8 +73,7 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
     this.targetDir = options.targetDir || process.cwd();
     this.recursionLimit = options.recursionLimit || 80;
     this.apiConfig = options.apiConfig;
-    this.maxTargetCount = options.maxTargetCount || 4;
-    this.maxTokens = options.maxTokens || 8000;
+    this.maxTokens = options.maxTokens || 100000;
     this.streamEnabled = options.stream || false;
     process.setMaxListeners(100);
 
@@ -332,8 +318,6 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
       const graphStream = await app.stream(
         {
           messages: [new HumanMessage(query)],
-          mode: 'auto',
-          targetCount: this.maxTargetCount,
         },
         {
           configurable: { thread_id: 'auto_worker' },
@@ -363,8 +347,6 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
       const graphStream = await app.stream(
         {
           messages: [new HumanMessage(query)],
-          mode: 'auto',
-          targetCount: this.maxTargetCount,
         },
         {
           configurable: { thread_id: 'stream_worker' },
@@ -401,7 +383,7 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
           return;
         }
         const graphStream = await app.stream(
-          { messages: [new HumanMessage(input)], mode: 'chat' },
+          { messages: [new HumanMessage(input)] },
           {
             configurable: { thread_id: 'session' },
             recursionLimit: this.recursionLimit,
@@ -486,9 +468,6 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
   }
 
   async callModel(state: typeof AgentState.State) {
-    const auditedListStr =
-      state.auditedFiles.length > 0 ? state.auditedFiles.map(f => `\n  - ${f}`).join('') : '暂无';
-
     const recentToolCalls = this.getRecentToolCalls(state.messages);
     const recentToolCallsStr =
       recentToolCalls.length > 0
@@ -499,9 +478,6 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
 
     // 1. 构建当前的系统提示词模板
     const systemPromptTemplate = `你是一个代码专家。工作目录：${this.targetDir}。
-当前模式：{mode}
-进度：{doneCount}/{targetCount}
-已审计文件：{auditedList}
 
 # 🛠️ 工具调用规范
 1. Arguments 必须是纯粹的 JSON 对象，严禁将其作为字符串放入引号中。
@@ -536,10 +512,6 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
     try {
       const promptParams = {
         messages: inputMessages,
-        mode: state.mode,
-        targetCount: state.targetCount,
-        doneCount: state.auditedFiles.length,
-        auditedList: auditedListStr,
         recentToolCalls: recentToolCallsStr,
         extraPrompt: this.options.extraSystemPrompt || '',
       };
@@ -696,22 +668,6 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
     return toolCalls;
   }
 
-  async trackProgress(state: typeof AgentState.State) {
-    const lastAiMsg = state.messages[state.messages.length - 1] as AIMessage;
-    const currentAudited = new Set(state.auditedFiles);
-
-    if (lastAiMsg?.tool_calls?.length) {
-      for (const tc of lastAiMsg.tool_calls) {
-        // 兼容所有可能的路径参数字段
-        const file = tc.args.path || tc.args.filePath || tc.args.file || tc.args.file_path;
-        if (file && typeof file === 'string') {
-          currentAudited.add(file);
-        }
-      }
-    }
-    return { auditedFiles: Array.from(currentAudited) };
-  }
-
   private printFinalSummary(state: typeof AgentState.State) {
     const totalTokens = state.tokenUsage?.total || 0;
     const totalMs = state.totalDuration || 0;
@@ -721,7 +677,6 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
       console.log(`🏁 \x1b[32;1m[审计任务全量结算]\x1b[0m`);
       console.log(`   - 累计消耗总额: \x1b[33m${totalTokens}\x1b[0m Tokens`);
       console.log(`   - 累计执行耗时: \x1b[36m${(totalMs / 1000).toFixed(2)}\x1b[0m s`);
-      console.log(`   - 审计文件总数: ${state.auditedFiles.length} 个`);
       console.log('═'.repeat(50) + '\n');
     }
   }
@@ -730,7 +685,6 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
     const workflow = new StateGraph(AgentState)
       .addNode('agent', state => this.callModel(state))
       .addNode('tools', this.toolNode)
-      .addNode('progress', state => this.trackProgress(state))
       .addEdge(START, 'agent')
       .addConditionalEdges('agent', state => {
         const { messages } = state;
@@ -741,6 +695,10 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
         // 如果已消耗 Token 超过了 options 中设置的 maxTokens (假设是总限额)
         if (this.options.maxTokens && state.tokenUsage.total >= this.options.maxTokens) {
           console.warn('⚠️ [警告] 已达到最大 Token 限制，强制结束任务。');
+          state.messages.push(new AIMessage({
+            content: `⚠️ 抱歉，当前任务消耗的 Token 已达上限 ${this.options.maxTokens}。为了防止无限循环，我已停止执行。你可以尝试分步骤指令，继续发送指令，直到任务完成。`
+          }));
+
           this.printFinalSummary(state);
           return END;
         }
@@ -750,25 +708,26 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
           return 'tools';
         }
 
-        // 2. 判定结束的条件：
-        // - 模式是 auto 且审计完成
-        // - 或者 AI 明确输出了结束语
-        // - 或者 AI 输出了普通内容且没有工具调用（针对问答模式）
-        const isAutoFinished =
-          state.mode === 'auto' && state.auditedFiles.length > state.targetCount;
         const isFinalAnswer = content.includes('Final Answer');
 
-        // ✅ 修复核心：如果 AI 只是在聊天（没有工具调用），直接结束，不要跳回 agent
-        if (isAutoFinished || isFinalAnswer || state.mode === 'chat') {
+        if (isFinalAnswer) {
           this.printFinalSummary(state);
           return END;
         }
 
-        // 兜底：如果是在 auto 模式且还没干完活，才跳回 agent（通常不会走到这里）
+        if (messages.length > 50) {
+          state.messages.push(new AIMessage({
+            content: `💡 **嘿，我们已经聊了很多了！**
+
+为了保证服务质量，我通常会在 50 步操作后停下来和您确认一下。这样可以避免我产生“幻觉”或者做一些无用功。
+
+**任务还没完成吗？** 没关系，只要您回复“继续”，我马上就回来接着干！或者您有什么新的想法要告诉我？`
+          }));
+          return END;
+        }
+
         return END;
-      })
-      .addEdge('tools', 'progress')
-      .addEdge('progress', 'agent');
+      }).addEdge('tools', 'agent');
 
     return workflow.compile({ checkpointer: this.checkpointer });
   }

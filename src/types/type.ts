@@ -12,7 +12,7 @@ export interface ApiConfig {
 }
 
 export interface ToolInfo {
-  type: "function";
+  type: 'function';
   function: {
     name: string;
     description?: string;
@@ -22,7 +22,6 @@ export interface ToolInfo {
   _client?: Client; // 外部 MCP 客户端
   _originalName?: string;
 }
-
 
 export interface McpConfig {
   mcpServers: {
@@ -39,15 +38,14 @@ export interface AgentOptions {
   tools?: ToolInfo[];
   extraSystemPrompt?: any;
   maxTokens?: number;
-  verbose?: boolean
-  apiConfig?: ApiConfig
+  verbose?: boolean;
+  apiConfig?: ApiConfig;
 }
 
 export interface GraphAgentOptions<T extends AgentGraphModel = any> extends AgentOptions {
   apiModel?: T;
   alwaysSystem?: boolean;
   recursionLimit?: number;
-  maxTargetCount?: number;
   /** 是否启用流式输出，默认 false */
   stream?: boolean;
 }
