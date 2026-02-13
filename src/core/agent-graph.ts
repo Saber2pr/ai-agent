@@ -230,7 +230,9 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
 
   // ✅ 修改：初始化逻辑
   async ensureInitialized() {
-    if (this.model && this.langchainTools.length > 0) return;
+    if (this.model && this.langchainTools.length > 0) {
+      return this.getModel();
+    };
 
     // 1. 加载所有工具（含 MCP）
     const toolsInfo = await this.prepareTools();
