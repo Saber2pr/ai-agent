@@ -8,8 +8,20 @@ export const getTsLspTools = (targetDir: string) => {
   const engine = new PromptEngine(targetDir);
   return [
     createTool({
-      name: "get_repo_map",
-      description: "获取项目全局文件结构及导出清单，用于快速定位代码",
+      name: 'get_method_body',
+      description:
+        '【仅限TS/JS】通过方法名提取代码块。比行号读取更抗干扰，参考逻辑时首选。',
+      parameters: z.object({
+        filePath: z.string().describe('文件相对路径'),
+        methodName: z.string().describe('方法名或函数名'),
+      }),
+      handler: async ({ filePath, methodName }) => {
+        return engine.getMethodImplementation(filePath, methodName);
+      },
+    }),
+    createTool({
+      name: 'get_repo_map',
+      description: '获取项目全局文件结构及导出清单，用于快速定位代码',
       parameters: z.object({}),
       handler: async () => {
         engine.refresh();
@@ -17,18 +29,18 @@ export const getTsLspTools = (targetDir: string) => {
       },
     }),
     createTool({
-      name: "analyze_deps",
-      description: "分析指定文件的依赖关系，支持 tsconfig 路径别名解析",
-      parameters: z.object({ filePath: z.string().describe("文件相对路径") }),
+      name: 'analyze_deps',
+      description: '分析指定文件的依赖关系，支持 tsconfig 路径别名解析',
+      parameters: z.object({ filePath: z.string().describe('文件相对路径') }),
       handler: async ({ filePath }) => engine.getDeps(filePath),
     }),
     createTool({
-      name: "read_skeleton",
-      description: "提取文件的结构定义（接口、类、方法签名），忽略具体实现以节省 Token",
-      parameters: z.object({ filePath: z.string().describe("文件相对路径") }),
-      handler: async (args) => {
+      name: 'read_skeleton',
+      description: '提取文件的结构定义（接口、类、方法签名），忽略具体实现以节省 Token',
+      parameters: z.object({ filePath: z.string().describe('文件相对路径') }),
+      handler: async args => {
         const pathArg = args?.filePath;
-        if (typeof pathArg !== "string" || pathArg.trim() === "") {
+        if (typeof pathArg !== 'string' || pathArg.trim() === '') {
           return `Error: 参数 'filePath' 无效。收到的是: ${JSON.stringify(pathArg)}`;
         }
         try {
@@ -40,13 +52,5 @@ export const getTsLspTools = (targetDir: string) => {
         }
       },
     }),
-    createTool({
-      name: "get_method_body",
-      description: "获取指定文件内某个方法或函数的完整实现代码",
-      parameters: z.object({ filePath: z.string().describe("文件相对路径"), methodName: z.string().describe("方法名或函数名") }),
-      handler: async ({ filePath, methodName }) => {
-        return engine.getMethodImplementation(filePath, methodName);
-      },
-    }),
-  ]
-}
+  ];
+};

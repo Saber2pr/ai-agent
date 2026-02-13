@@ -1,4 +1,3 @@
-/* eslint-disable no-continue */
 import fs from 'fs/promises';
 import { minimatch } from 'minimatch';
 import path from 'path';
@@ -6,7 +5,6 @@ import { z } from 'zod';
 
 import { createTool } from '../../utils/createTool';
 import {
-  applyFileEdits,
   formatSize,
   getFileStats,
   headFile,
@@ -39,26 +37,7 @@ const WriteFileArgsSchema = z.object({
   content: z.string(),
 });
 
-const EditOperation = z.object({
-  oldText: z.string().describe('Text to search for - must match exactly'),
-  newText: z.string().describe('Text to replace with'),
-});
-
-const EditFileArgsSchema = z.object({
-  path: z.string(),
-  edits: z.array(EditOperation),
-  dryRun: z
-    .boolean()
-    .optional()
-    .default(false)
-    .describe('Preview changes using git-style diff format'),
-});
-
 const CreateDirectoryArgsSchema = z.object({
-  path: z.string(),
-});
-
-const ListDirectoryArgsSchema = z.object({
   path: z.string(),
 });
 
@@ -74,6 +53,7 @@ const ListDirectoryWithSizesArgsSchema = z.object({
 const DirectoryTreeArgsSchema = z.object({
   path: z.string(),
   excludePatterns: z.array(z.string()).optional().default([]),
+  depth: z.number().optional().default(2).describe('递归深度，默认 2 层。增加深度会消耗更多 Token'),
 });
 
 const MoveFileArgsSchema = z.object({
@@ -92,9 +72,21 @@ const GetFileInfoArgsSchema = z.object({
 });
 
 const GrepSearchArgsSchema = z.object({
-  path: z.string().describe('The starting directory path for searching content'),
-  query: z.string().describe('The text keyword to search for'),
-  includePattern: z.string().optional().default('**/*').describe('Only search in files matching this pattern, for example "**/*.ts"'),
+  path: z.string().describe('搜索的起始目录路径'),
+  query: z.string().describe('要搜索的文本关键字'),
+  includePattern: z.string().optional().default('**/*').describe('匹配模式，例如 "**/*.ts"'),
+  maxFiles: z.number().optional().default(100).describe('最大扫描文件数，防止大型项目超时'),
+});
+
+
+const PatchEditArgsSchema = z.object({
+  path: z.string().describe('文件路径'),
+  patches: z.array(z.object({
+    startLine: z.number().describe('起始行号（包含）'),
+    endLine: z.number().describe('结束行号（包含）'),
+    replacement: z.string().describe('要插入的新代码内容'),
+    originalSnippet: z.string().optional().describe('可选：该行范围内的原始代码片段，用于二次校验防止行号偏移'),
+  })).describe('补丁列表。注意：若有多个补丁，建议从文件尾部向头部执行，或确保行号不重叠'),
 });
 
 export const getFilesystemTools = (targetDir: string) => {
@@ -123,12 +115,7 @@ export const getFilesystemTools = (targetDir: string) => {
   const readTextFileTool = createTool({
     name: 'read_text_file',
     description:
-      'Read the complete contents of a file from the file system as text. ' +
-      'Handles various text encodings and provides detailed error messages ' +
-      'if the file cannot be read. Use this tool when you need to examine ' +
-      "the contents of a single file. Use the 'head' parameter to read only " +
-      "the first N lines of a file, or the 'tail' parameter to read only " +
-      'the last N lines of a file. Operates on the file as text regardless of extension.',
+      '读取文件全文。若超过100行则禁止使用，必须改用 read_file_range。支持 head/tail 参数。',
     parameters: ReadTextFileArgsSchema,
     handler: readTextFileHandler,
   });
@@ -136,26 +123,44 @@ export const getFilesystemTools = (targetDir: string) => {
   const readMultipleFilesTool = createTool({
     name: 'read_multiple_files',
     description:
-      'Read the contents of multiple files simultaneously. This is more ' +
-      'efficient than reading files one by one when you need to analyze ' +
-      "or compare multiple files. Each file's content is returned with its " +
-      "path as a reference. Failed reads for individual files won't stop " +
-      'the entire operation. Only works within allowed directories.',
+      '同时读取多个文件的内容。当你需要对比多个文件或分析跨文件关联时使用。' +
+      '注意：为了防止 Token 溢出，本工具一次最多读取 10 个文件，且每个文件仅展示前 6000 字符。' +
+      '若需查看完整大文件或特定逻辑，请改用 read_file_range。',
     parameters: ReadMultipleFilesArgsSchema,
     handler: async (args: z.infer<typeof ReadMultipleFilesArgsSchema>) => {
+      // 保护 1：文件数量限制 (防止 AI 一次传入几十个文件)
+      const MAX_FILES = 10;
+      const pathsToRead = args.paths.slice(0, MAX_FILES);
+      const isTruncatedByCount = args.paths.length > MAX_FILES;
+
+      // 保护 2：单文件字符数限制 (防止读入超大型二进制或日志文件)
+      const MAX_CHARS_PER_FILE = 6000;
+
       const results = await Promise.all(
-        args.paths.map(async (filePath: string) => {
+        pathsToRead.map(async (filePath: string) => {
           try {
+            // 沿用你现有的路径验证逻辑
             const validPath = await validatePath(targetDir, filePath);
             const content = await readFileContent(validPath);
+
+            if (content.length > MAX_CHARS_PER_FILE) {
+              return `${filePath} (内容已截断):\n${content.substring(0, MAX_CHARS_PER_FILE)}\n\n[... 内容过长，仅展示前 ${MAX_CHARS_PER_FILE} 字符。若需查看后续内容，请使用 read_file_range 指定行号读取 ...]`;
+            }
+
             return `${filePath}:\n${content}\n`;
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            return `${filePath}: Error - ${errorMessage}`;
+            return `${filePath}: 读取失败 - ${errorMessage}`;
           }
         })
       );
-      const text = results.join('\n---\n');
+
+      let text = results.join('\n---\n');
+
+      if (isTruncatedByCount) {
+        text += `\n\n⚠️ 注意：一次请求最多处理 ${MAX_FILES} 个文件。剩余 ${args.paths.length - MAX_FILES} 个文件未读取，请分批请求。`;
+      }
+
       return text;
     },
   });
@@ -163,29 +168,13 @@ export const getFilesystemTools = (targetDir: string) => {
   const writeFileTool = createTool({
     name: 'write_file',
     description:
-      'Create a new file or completely overwrite an existing file with new content. ' +
-      'Use with caution as it will overwrite existing files without warning. ' +
-      'Handles text content with proper encoding. Only works within allowed directories.',
+      '仅用于创建新文件。严禁用于修改现有源代码。',
     parameters: WriteFileArgsSchema,
     handler: async (args: z.infer<typeof WriteFileArgsSchema>) => {
       const validPath = await validatePath(targetDir, args.path);
       await writeFileContent(validPath, args.content);
       const text = `Successfully wrote to ${args.path}`;
       return text;
-    },
-  });
-
-  const editFileTool = createTool({
-    name: 'edit_file',
-    description:
-      'Make line-based edits to a text file. Each edit replaces exact line sequences ' +
-      'with new content. Returns a git-style diff showing the changes made. ' +
-      'Only works within allowed directories.',
-    parameters: EditFileArgsSchema,
-    handler: async (args: z.infer<typeof EditFileArgsSchema>) => {
-      const validPath = await validatePath(targetDir, args.path);
-      const result = await applyFileEdits(validPath, args.edits as any, args.dryRun);
-      return result;
     },
   });
 
@@ -205,26 +194,8 @@ export const getFilesystemTools = (targetDir: string) => {
     },
   });
 
-  const listDirectoryTool = createTool({
-    name: 'list_directory',
-    description:
-      'Get a detailed listing of all files and directories in a specified path. ' +
-      'Results clearly distinguish between files and directories with [FILE] and [DIR] ' +
-      'prefixes. This tool is essential for understanding directory structure and ' +
-      'finding specific files within a directory. Only works within allowed directories.',
-    parameters: ListDirectoryArgsSchema,
-    handler: async args => {
-      const validPath = await validatePath(targetDir, args.path);
-      const entries = await fs.readdir(validPath, { withFileTypes: true });
-      const formatted = entries
-        .map(entry => `${entry.isDirectory() ? '[DIR]' : '[FILE]'} ${entry.name}`)
-        .join('\n');
-      return formatted;
-    },
-  });
-
   const listDirectoryWithSizesTool = createTool({
-    name: 'list_directory_with_sizes',
+    name: 'list_directory',
     description:
       'Get a detailed listing of all files and directories in a specified path, including sizes. ' +
       'Results clearly distinguish between files and directories with [FILE] and [DIR] ' +
@@ -296,10 +267,8 @@ export const getFilesystemTools = (targetDir: string) => {
   const directoryTreeTool = createTool({
     name: 'directory_tree',
     description:
-      'Get a recursive tree view of files and directories as a JSON structure. ' +
-      "Each entry includes 'name', 'type' (file/directory), and 'children' for directories. " +
-      'Files have no children array, while directories always have a children array (which may be empty). ' +
-      'The output is formatted with 2-space indentation for readability. Only works within allowed directories.',
+      '获取目录的递归树状 JSON 结构。' +
+      '默认仅展示 2 层深度以节省 Token。如果需要看更深层级，请调大 depth 参数。',
     parameters: DirectoryTreeArgsSchema,
     handler: async (args: z.infer<typeof DirectoryTreeArgsSchema>) => {
       interface TreeEntry {
@@ -311,26 +280,19 @@ export const getFilesystemTools = (targetDir: string) => {
 
       async function buildTree(
         currentPath: string,
+        currentDepth: number,
+        maxDepth: number,
         excludePatterns: string[] = []
       ): Promise<TreeEntry[]> {
+        if (currentDepth > maxDepth) return []; // 深度限制
+
         const validPath = await validatePath(targetDir, currentPath);
         const entries = await fs.readdir(validPath, { withFileTypes: true });
         const result: TreeEntry[] = [];
 
         for (const entry of entries) {
           const relativePath = path.relative(rootPath, path.join(currentPath, entry.name));
-          const shouldExclude = excludePatterns.some(pattern => {
-            if (pattern.includes('*')) {
-              return minimatch(relativePath, pattern, { dot: true });
-            }
-            // For files: match exact name or as part of path
-            // For directories: match as directory path
-            return (
-              minimatch(relativePath, pattern, { dot: true }) ||
-              minimatch(relativePath, `**/${pattern}`, { dot: true }) ||
-              minimatch(relativePath, `**/${pattern}/**`, { dot: true })
-            );
-          });
+          const shouldExclude = excludePatterns.some(pattern => minimatch(relativePath, pattern, { dot: true }));
           if (shouldExclude) continue;
 
           const entryData: TreeEntry = {
@@ -338,20 +300,18 @@ export const getFilesystemTools = (targetDir: string) => {
             type: entry.isDirectory() ? 'directory' : 'file',
           };
 
-          if (entry.isDirectory()) {
+          if (entry.isDirectory() && currentDepth < maxDepth) {
             const subPath = path.join(currentPath, entry.name);
-            entryData.children = await buildTree(subPath, excludePatterns);
+            entryData.children = await buildTree(subPath, currentDepth + 1, maxDepth, excludePatterns);
           }
 
           result.push(entryData);
         }
-
         return result;
       }
 
-      const treeData = await buildTree(rootPath, args.excludePatterns);
-      const text = JSON.stringify(treeData, null, 2);
-      return text;
+      const treeData = await buildTree(rootPath, 1, args.depth, args.excludePatterns);
+      return JSON.stringify(treeData, null, 2);
     },
   });
 
@@ -376,7 +336,8 @@ export const getFilesystemTools = (targetDir: string) => {
     name: 'search_files',
     description:
       'Search for files matching a specific pattern in a specified path. ' +
-      'Returns a list of files that match the pattern. Only works within allowed directories.',
+      'Returns a list of files that match the pattern. Only works within allowed directories.' +
+      'Used only for filename search',
     parameters: SearchFilesArgsSchema,
     handler: async (args: z.infer<typeof SearchFilesArgsSchema>) => {
       const validPath = await validatePath(targetDir, args.path);
@@ -407,65 +368,155 @@ export const getFilesystemTools = (targetDir: string) => {
   const grepSearchTool = createTool({
     name: 'grep_search',
     description:
-      'Search for a specific keyword in the content of files in a specified directory. ' +
-      'This tool will recursively read files and return the paths of all files containing the keyword. ' +
-      'Useful for finding variable definitions, function calls, or specific text.',
+      '在指定目录的文件内容中搜索关键字。' +
+      '该工具会返回包含关键字的文件路径及匹配行的预览。' +
+      '请尽量通过 includePattern 缩小搜索范围。',
     parameters: GrepSearchArgsSchema,
     handler: async (args: z.infer<typeof GrepSearchArgsSchema>) => {
       const startPath = await validatePath(targetDir, args.path);
-
-      // 1. 利用你现有的工具先筛选出文件列表
       const allFiles = await searchFilesWithValidation(
         targetDir,
         startPath,
         args.includePattern,
         [targetDir],
-        { excludePatterns: ['node_modules', 'dist', '.git'] }
+        { excludePatterns: ['node_modules', 'dist', '.git', 'build'] }
       );
 
+      // 限制扫描文件数，防止爆炸
+      const filesToScan = allFiles.slice(0, args.maxFiles);
       const matches: string[] = [];
-
-      // 2. 并发读取文件内容进行关键词匹配 (限制并发数为 10，防止内存或句柄爆炸)
       const concurrencyLimit = 10;
-      for (let i = 0; i < allFiles.length; i += concurrencyLimit) {
-        const chunk = allFiles.slice(i, i + concurrencyLimit);
+
+      for (let i = 0; i < filesToScan.length; i += concurrencyLimit) {
+        const chunk = filesToScan.slice(i, i + concurrencyLimit);
         await Promise.all(
           chunk.map(async (filePath) => {
             try {
-              // 注意：这里确保只搜索文件，不搜索目录
               const stats = await fs.stat(filePath);
               if (!stats.isFile()) return;
 
               const content = await readFileContent(filePath);
               if (content.includes(args.query)) {
-                // 返回相对路径，方便查看
-                matches.push(path.relative(targetDir, filePath));
+                const relativePath = path.relative(targetDir, filePath);
+                // 找到匹配的那一行（预览用）
+                const lines = content.split('\n');
+                const matchLineIndex = lines.findIndex(l => l.includes(args.query));
+                matches.push(`${relativePath} (Line ${matchLineIndex + 1}: "${lines[matchLineIndex].trim().substring(0, 100)}")`);
               }
-            } catch {
-              // 忽略读取失败的文件（如二进制文件或无权限文件）
-            }
+            } catch { /* 忽略错误文件 */ }
           })
         );
       }
 
-      return matches.length > 0
-        ? `Found keyword "${args.query}" in the following files:\n${matches.join('\n')}`
-        : `No content containing "${args.query}" found in the specified range.`;
+      let response = matches.length > 0
+        ? `找到关键词 "${args.query}" 的位置如下：\n${matches.join('\n')}`
+        : `未找到包含 "${args.query}" 的内容。`;
+
+      if (allFiles.length > args.maxFiles) {
+        response += `\n\n注意：搜索已达到限制，仅扫描了前 ${args.maxFiles} 个文件。若未找到结果，请提供更精确的 path 或 includePattern。`;
+      }
+      return response;
+    },
+  });
+
+  const readFileRangeTool = createTool({
+    name: 'read_file_range',
+    description:
+      '精准读取指定行范围（包含行号前缀）。修改代码前或根据报错定位时必用。',
+    parameters: z.object({
+      path: z.string().describe('相对于目标目录的文件路径'),
+      startLine: z.number().describe('起始行号（从 1 开始计）'),
+      endLine: z.number().describe('结束行号'),
+    }),
+    handler: async (args) => {
+      // 1. 验证路径安全（沿用你代码中的 validatePath 逻辑）
+      const validPath = await validatePath(targetDir, args.path);
+
+      try {
+        const content = await fs.readFile(validPath, 'utf-8');
+        const lines = content.split('\n');
+        const totalLines = lines.length;
+
+        // 2. 边界保护：确保行号不越界
+        const start = Math.max(1, args.startLine);
+        const end = Math.min(totalLines, args.endLine);
+
+        if (start > totalLines) {
+          return `错误：文件仅有 ${totalLines} 行，起始行号 ${start} 超出范围。`;
+        }
+        if (start > end) {
+          return `错误：起始行号 ${start} 不能大于结束行号 ${end}。`;
+        }
+
+        // 3. 截取并添加行号索引（核心：增强 AI 的位置感）
+        const selectedLines = lines.slice(start - 1, end);
+        const formattedContent = selectedLines
+          .map((line, index) => `${start + index}| ${line}`)
+          .join('\n');
+
+        return `[文件: ${args.path} | 第 ${start} 至 ${end} 行 / 共 ${totalLines} 行]\n${formattedContent}`;
+      } catch (error: any) {
+        return `读取文件范围失败: ${error.message}`;
+      }
+    },
+  });
+
+
+  const editFileTool = createTool({
+    name: 'edit_file',
+    description:
+      '基于行号范围替换代码。修改逻辑的唯一工具。调用前须通过 read_file_range 获取最新行号。支持删除(空内容)或单行替换。',
+    parameters: PatchEditArgsSchema,
+    handler: async (args: z.infer<typeof PatchEditArgsSchema>) => {
+      const validPath = await validatePath(targetDir, args.path);
+
+      try {
+        const content = await fs.readFile(validPath, 'utf-8');
+        let lines = content.split('\n');
+
+        // 按起始行号从大到小排序，这样修改前面的行不会影响后面待修改行的索引
+        const sortedPatches = [...args.patches].sort((a, b) => b.startLine - a.startLine);
+
+        for (const patch of sortedPatches) {
+          // 校验行号合法性
+          if (patch.startLine < 1 || patch.endLine > lines.length || patch.startLine > patch.endLine) {
+            return `错误：行号范围 ${patch.startLine}-${patch.endLine} 超出文件实际范围 (1-${lines.length})`;
+          }
+
+          // 可选：二次校验（防止 AI 记忆了错误的行号）
+          if (patch.originalSnippet) {
+            const currentText = lines.slice(patch.startLine - 1, patch.endLine).join('\n');
+            // 模糊对比，如果差异太大则报错
+            if (!currentText.includes(patch.originalSnippet.trim()) && currentText.trim().length > 0) {
+              return `警告：第 ${patch.startLine} 行的内容已发生变动，与你预想的代码不符。请重新读取文件获取最新行号。`;
+            }
+          }
+
+          // 执行替换：splice(开始索引, 删除数量, 替换内容)
+          // 索引需要减 1
+          lines.splice(patch.startLine - 1, (patch.endLine - patch.startLine) + 1, patch.replacement);
+        }
+
+        await fs.writeFile(validPath, lines.join('\n'), 'utf-8');
+        return `成功通过行号更新了 ${args.path} 的 ${args.patches.length} 处代码。`;
+      } catch (error: any) {
+        return `Patch 失败: ${error.message}`;
+      }
     },
   });
 
   return [
+    readFileRangeTool,
+    editFileTool,
+    directoryTreeTool,
+    listDirectoryWithSizesTool,
+    grepSearchTool,
+    getFileInfoTool,
     readTextFileTool,
     readMultipleFilesTool,
-    writeFileTool,
-    editFileTool,
-    createDirectoryTool,
-    listDirectoryTool,
-    listDirectoryWithSizesTool,
-    directoryTreeTool,
-    moveFileTool,
     searchFilesTool,
-    getFileInfoTool,
-    grepSearchTool,
+    writeFileTool,
+    createDirectoryTool,
+    moveFileTool,
   ];
 };
