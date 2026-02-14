@@ -6,6 +6,7 @@ import { convertToOpenAITool } from '@langchain/core/utils/function_calling';
 import { generateToolMarkdown } from '../utils/generateToolMarkdown';
 import { getArray } from '../utils/kit';
 import { getIncrementalRepoMapPrompt } from '../utils/getRepoMapPrompt';
+import { getSystemPromptTemplate } from '../utils/getSystemPromptTemplate';
 
 export interface AgentGraphLLMResponse {
   text: string;
@@ -232,6 +233,8 @@ ${isFirstMessage ? format(systemMsg as any) : ''}
 ${toolsContext}
 ${getIncrementalRepoMapPrompt(this.targetDir, isFirstMessage)}
 `.trim() : `
+${getSystemPromptTemplate(this.targetDir)}
+
 ## Active Tools (Summary)
 Available: ${getArray(tools).map(t => t.function.name).join(', ')}
 

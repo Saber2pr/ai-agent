@@ -19,6 +19,7 @@ import { jsonSchemaToZod } from '../utils/jsonSchemaToZod';
 import { formatSchema } from '../utils/formatSchema';
 import { AgentGraphModel } from '../model/AgentGraphModel';
 import { CONFIG_FILE } from '../config/config';
+import { getSystemPromptTemplate } from '../utils/getSystemPromptTemplate';
 
 // ✅ 全局设置：修复 AbortSignal 监听器数量警告
 // LangChain 的 HTTP 客户端会创建多个 AbortSignal，需要增加默认限制
@@ -477,21 +478,10 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
         : '';
 
     // 1. 构建当前的系统提示词模板
-    const systemPromptTemplate = `You are an expert software engineer. Working directory: ${this.targetDir}.
-
-# 🧠 Mandatory Thinking Process
-Before providing any output or calling a tool, you **MUST** conduct a deep logical analysis. Wrap your thought process within <think> tags.
-
-# 🛠️ Tool Call Specifications
-1. **Pure JSON Arguments**: Arguments must be a valid JSON object. NEVER wrap the entire JSON object in a string or quotes.
-2. **No Double Escaping**: Do not double-escape characters within the JSON.
-3. **No Idle Operations**: If the task is complete or no tool is needed, DO NOT output any "Action" structure. Never use "None", "null", or empty strings as a tool name.
-
-# 🎯 Core Instructions
-1. **Termination Criterion**: Once you have read the requested files, answered the questions, or completed the code implementation, you must provide the final response immediately.
-2. **Response Format**: Upon task completion, start your summary with "Final Answer:". No further tool calls should be made after this point.
-
-{extraPrompt}`;
+    const systemPromptTemplate = `
+${getSystemPromptTemplate(this.targetDir)}
+    
+{extraPrompt}`.trim();
 
     // 2. 核心逻辑：处理消息上下文
     let inputMessages: BaseMessage[];
