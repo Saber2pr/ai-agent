@@ -319,7 +319,7 @@ export default class McpAgent {
         let result: any;
 
         if (tool?._handler) {
-          result = await tool._handler(args);
+          result = await tool._handler(args, { allTools: this.allTools });
         } else if (tool?._client && tool._originalName) {
           const mcpRes = await tool._client.callTool({
             name: tool._originalName,

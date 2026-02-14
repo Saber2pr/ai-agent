@@ -203,7 +203,7 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
     // 合并内置、手动传入和 MCP 工具
     const allToolInfos = [...builtinToolInfos, ...(this.options.tools || []), ...mcpToolInfos];
 
-    this.langchainTools = allToolInfos.map(t => convertToLangChainTool(t));
+    this.langchainTools = allToolInfos.map(t => convertToLangChainTool(t, { allTools: allToolInfos }));
     this.toolNode = new ToolNode(this.langchainTools);
 
     return {

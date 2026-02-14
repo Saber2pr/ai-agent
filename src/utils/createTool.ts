@@ -9,7 +9,7 @@ export interface CreateToolOptions {
    * zod@3.25
    */
   parameters: z.ZodObject<any>;
-  handler: (args: any) => Promise<string>;
+  handler: (args: any, context: { allTools: ToolInfo[] }) => Promise<string>;
 }
 
 export function createTool(options: CreateToolOptions): ToolInfo {
@@ -20,7 +20,7 @@ export function createTool(options: CreateToolOptions): ToolInfo {
       description: options.description,
       parameters: options.parameters,
     },
-    _handler: async input => {
+    _handler: async (input, context) => {
       // 兼容处理：如果 input 是字符串，尝试解析为 JSON 对象
       let args = input;
       if (typeof input === 'string') {
@@ -31,7 +31,7 @@ export function createTool(options: CreateToolOptions): ToolInfo {
         }
       }
 
-      return options.handler(args);
+      return options.handler(args, context);
     },
   };
 }

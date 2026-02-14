@@ -5,6 +5,7 @@ import { convertToOpenAITool } from '@langchain/core/utils/function_calling';
 
 import { generateToolMarkdown } from '../utils/generateToolMarkdown';
 import { getArray } from '../utils/kit';
+import { getIncrementalRepoMapPrompt } from '../utils/getRepoMapPrompt';
 
 export interface AgentGraphLLMResponse {
   text: string;
@@ -21,6 +22,7 @@ export abstract class AgentGraphModel extends BaseChatModel {
   private mcpEnabled?: boolean = true
   private mcpTools?: any[] = []
   protected chatId = '';
+  protected targetDir?: string;
 
   resetChat() {
     this.chatId = '';
@@ -45,12 +47,13 @@ export abstract class AgentGraphModel extends BaseChatModel {
     return mcpTools.some(t => t?.function?.name === tool?.function?.name)
   }
 
-  constructor(fields?: BaseChatModelParams) {
+  constructor(fields?: BaseChatModelParams & { targetDir?: string }) {
     super(fields || {});
 
     this.chatId = '';
     this.mcpTools = [];
     this.mcpEnabled = true;
+    this.targetDir = fields?.targetDir;
   }
 
   bindTools(tools: any[]): any {
@@ -227,7 +230,16 @@ export abstract class AgentGraphModel extends BaseChatModel {
     const systemContext = isFirstMessage ? `
 ${isFirstMessage ? format(systemMsg as any) : ''}
 ${toolsContext}
-`.trim() : ''
+${getIncrementalRepoMapPrompt(this.targetDir, isFirstMessage)}
+`.trim() : `
+## Active Tools (Summary)
+Available: ${getArray(tools).map(t => t.function.name).join(', ')}
+
+**Self-Correction**: If you encounter "tool not found" or need parameter details, you MUST call:
+- \`get_all_tools_schema\`: Retrieve full tool definitions and schemas.
+
+${getIncrementalRepoMapPrompt(this.targetDir, isFirstMessage)}
+`.trim();
 
     return `
 ${systemContext}

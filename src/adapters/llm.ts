@@ -9,7 +9,9 @@ export class LLMModel extends AgentGraphModel {
   private options: CreateAgentOptions;
 
   constructor(options: CreateAgentOptions) {
-    super();
+    super({
+      targetDir: options.targetDir,
+    });
     this.options = options;
   }
 

@@ -1,5 +1,6 @@
 import { AgentOptions, ToolInfo } from '../types/type';
 import { getFilesystemTools } from './filesystem';
+import { getAllToolsSchema } from './loader/get_all_tools_schema';
 import { getTsLspTools } from './ts-lsp';
 
 export interface BuiltinToolsContext {
@@ -12,5 +13,6 @@ export function createDefaultBuiltinTools(context: BuiltinToolsContext): ToolInf
   return [
     ...getTsLspTools(options?.targetDir || process.cwd()),
     ...getFilesystemTools(options?.targetDir || process.cwd()),
+    getAllToolsSchema,
   ];
 }

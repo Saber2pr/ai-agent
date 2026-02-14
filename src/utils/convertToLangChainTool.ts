@@ -2,13 +2,13 @@ import { DynamicStructuredTool } from '@langchain/core/tools';
 
 import { ToolInfo } from '../types/type';
 
-export function convertToLangChainTool(info: ToolInfo) {
+export function convertToLangChainTool(info: ToolInfo, context: { allTools: ToolInfo[] }) {
   return new DynamicStructuredTool({
     name: info.function.name,
     description: info.function.description || '',
     schema: info.function.parameters,
-    func: async args => {
-      if (info._handler) return await info._handler(args);
+    func: async (args) => {
+      if (info._handler) return await info._handler(args, context);
       if (info._client && info._originalName) {
         const result = await info._client.callTool({
           name: info._originalName,
