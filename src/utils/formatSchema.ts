@@ -5,18 +5,22 @@ export function formatSchema(schema: z.ZodObject<any>) {
   const res = zodToJsonSchema(schema) as any;
   if (typeof res.properties === 'object') {
     const requiredKeys = res.required || [];
-    const lines = []
+    const lines = [];
 
     for (const key in res.properties) {
-      lines.push(`     - ${key}: ${res.properties[key].type}${requiredKeys.includes(key) ? " (required)" : ""}`);
+      lines.push(
+        `     - ${key}: ${res.properties[key].type}${
+          requiredKeys.includes(key) ? ' (required)' : ''
+        }`
+      );
     }
 
     if (lines.length > 0) {
-      return lines.join("\n");
+      return lines.join('\n');
     }
-    return "No parameters";
+    return 'No parameters';
   }
 
   const keys = Object.keys(schema.shape);
-  return keys.join(", ");
+  return keys.join(', ');
 }

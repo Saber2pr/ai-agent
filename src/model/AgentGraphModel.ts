@@ -2,7 +2,8 @@ import { BaseChatModel, BaseChatModelParams } from '@langchain/core/language_mod
 import { AIMessage, BaseMessage } from '@langchain/core/messages';
 import { ChatResult } from '@langchain/core/outputs';
 import { convertToOpenAITool } from '@langchain/core/utils/function_calling';
-import { cleanToolDefinition } from '../utils/cleanToolDefinition';
+
+import { generateToolMarkdown } from '../utils/generateToolMarkdown';
 import { getArray } from '../utils/kit';
 
 export interface AgentGraphLLMResponse {
@@ -210,7 +211,7 @@ export abstract class AgentGraphModel extends BaseChatModel {
 
     const tools = this.getMcpEnabled() ? getArray(this.boundTools) : getArray(this.boundTools).filter(tool => !this.isMcpTool(tool))
     const toolsContext = tools.length
-      ? `\n[Tools]\n${JSON.stringify(tools.map(cleanToolDefinition), null, 2)}`
+      ? `${generateToolMarkdown(tools)}`
       : '';
 
     return `

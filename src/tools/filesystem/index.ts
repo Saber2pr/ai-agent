@@ -1,5 +1,7 @@
 import fs from 'fs/promises';
-import { minimatch } from 'minimatch';
+import * as minimatchLib from 'minimatch';
+const minimatch = typeof minimatchLib === 'function' ? minimatchLib : minimatchLib.minimatch;
+
 import path from 'path';
 import { z } from 'zod';
 
@@ -65,7 +67,7 @@ const ListDirectoryWithSizesArgsSchema = z.object({
 const DirectoryTreeArgsSchema = z.object({
   path: z.string(),
   excludePatterns: z.array(z.string()).optional().default([]),
-  depth: z.number().optional().default(2).describe('递归深度，默认 2 层。增加深度会消耗更多 Token'),
+  depth: z.number().optional().default(2).describe('Recursive depth, default 2 layers. Increasing depth will consume more tokens'),
 });
 
 const MoveFileArgsSchema = z.object({
@@ -84,21 +86,21 @@ const GetFileInfoArgsSchema = z.object({
 });
 
 const GrepSearchArgsSchema = z.object({
-  path: z.string().describe('搜索的起始目录路径'),
-  query: z.string().describe('要搜索的文本关键字'),
-  includePattern: z.string().optional().default('**/*').describe('匹配模式，例如 "**/*.ts"'),
-  maxFiles: z.number().optional().default(100).describe('最大扫描文件数，防止大型项目超时'),
+  path: z.string().describe('The starting directory path to search'),
+  query: z.string().describe('The text keyword to search'),
+  includePattern: z.string().optional().default('**/*').describe('The matching pattern, for example "**/*.ts"'),
+  maxFiles: z.number().optional().default(100).describe('The maximum number of files to scan, to prevent large projects from timing out'),
 });
 
 
 const PatchEditArgsSchema = z.object({
-  path: z.string().describe('文件路径'),
+  path: z.string().describe('The file path'),
   patches: z.array(z.object({
-    startLine: z.number().describe('起始行号（包含）'),
-    endLine: z.number().describe('结束行号（包含）'),
-    replacement: z.string().describe('要插入的新代码内容'),
-    originalSnippet: z.string().optional().describe('可选：该行范围内的原始代码片段，用于二次校验防止行号偏移'),
-  })).describe('补丁列表。注意：若有多个补丁，建议从文件尾部向头部执行，或确保行号不重叠'),
+    startLine: z.number().describe('The start line number (inclusive)'),
+    endLine: z.number().describe('The end line number (inclusive)'),
+    replacement: z.string().describe('The new code content to insert'),
+    originalSnippet: z.string().optional().describe('Optional: The original code snippet within the line range, used to verify and prevent line number offset'),
+  })).describe('The patch list. Note: If there are multiple patches, it is recommended to execute from the end of the file to the beginning, or ensure that the line numbers do not overlap'),
 });
 
 export const getFilesystemTools = (targetDir: string) => {
@@ -127,7 +129,7 @@ export const getFilesystemTools = (targetDir: string) => {
   const readTextFileTool = createTool({
     name: 'read_text_file',
     description:
-      '读取文件全文。若超过100行则禁止使用，必须改用 read_file_range。支持 head/tail 参数。',
+      'Read the full content of the file. If it exceeds 100 lines, it is forbidden to use, must use read_file_range. Supports head/tail parameters.',
     parameters: ReadTextFileArgsSchema,
     handler: readTextFileHandler,
   });
@@ -135,9 +137,9 @@ export const getFilesystemTools = (targetDir: string) => {
   const readMultipleFilesTool = createTool({
     name: 'read_multiple_files',
     description:
-      '同时读取多个文件的内容。当你需要对比多个文件或分析跨文件关联时使用。' +
-      '注意：为了防止 Token 溢出，本工具一次最多读取 10 个文件，且每个文件仅展示前 6000 字符。' +
-      '若需查看完整大文件或特定逻辑，请改用 read_file_range。',
+      'Read the content of multiple files at the same time. Use when you need to compare multiple files or analyze cross-file relationships.' +
+      'Note: To prevent token overflow, this tool can read up to 10 files at a time, and each file only displays the first 6000 characters.' +
+      'If you need to view the complete large file or specific logic, please use read_file_range instead.',
     parameters: ReadMultipleFilesArgsSchema,
     handler: async (args: z.infer<typeof ReadMultipleFilesArgsSchema>) => {
       // 保护 1：文件数量限制 (防止 AI 一次传入几十个文件)
@@ -156,13 +158,13 @@ export const getFilesystemTools = (targetDir: string) => {
             const content = await readFileContent(validPath);
 
             if (content.length > MAX_CHARS_PER_FILE) {
-              return `${filePath} (内容已截断):\n${content.substring(0, MAX_CHARS_PER_FILE)}\n\n[... 内容过长，仅展示前 ${MAX_CHARS_PER_FILE} 字符。若需查看后续内容，请使用 read_file_range 指定行号读取 ...]`;
+              return `${filePath} (Content truncated):\n${content.substring(0, MAX_CHARS_PER_FILE)}\n\n[... Content too long, only showing the first ${MAX_CHARS_PER_FILE} characters. If you need to view the subsequent content, please use read_file_range to specify the line number to read ...]`;
             }
 
             return `${filePath}:\n${content}\n`;
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            return `${filePath}: 读取失败 - ${errorMessage}`;
+            return `${filePath}: Read failed - ${errorMessage}`;
           }
         })
       );
@@ -170,7 +172,7 @@ export const getFilesystemTools = (targetDir: string) => {
       let text = results.join('\n---\n');
 
       if (isTruncatedByCount) {
-        text += `\n\n⚠️ 注意：一次请求最多处理 ${MAX_FILES} 个文件。剩余 ${args.paths.length - MAX_FILES} 个文件未读取，请分批请求。`;
+        text += `\n\n⚠️ Note: The maximum number of files processed in one request is ${MAX_FILES}. ${args.paths.length - MAX_FILES} files remain unread, please request in batches.`;
       }
 
       return text;
@@ -180,7 +182,7 @@ export const getFilesystemTools = (targetDir: string) => {
   const writeFileTool = createTool({
     name: 'write_file',
     description:
-      '仅用于创建新文件。严禁用于修改现有源代码。',
+      'Only used to create new files. It is forbidden to use it to modify existing source code.',
     parameters: WriteFileArgsSchema,
     handler: async (args: z.infer<typeof WriteFileArgsSchema>) => {
       const validPath = await validatePath(targetDir, args.path);
@@ -193,7 +195,7 @@ export const getFilesystemTools = (targetDir: string) => {
   const createDirectoryTool = createTool({
     name: 'create_directory',
     description:
-      '递归创建目录。支持多级嵌套。若目录已存在则静默成功。仅限允许目录。',
+      'Recursively create a directory. Supports nested directories. If the directory already exists, it will be successful silently. Only allowed directories.',
     parameters: CreateDirectoryArgsSchema,
     handler: async args => {
       const validPath = await validatePath(targetDir, args.path);
@@ -206,7 +208,7 @@ export const getFilesystemTools = (targetDir: string) => {
   const listDirectoryWithSizesTool = createTool({
     name: 'list_directory',
     description:
-      '列出目录内容。返回带 [FILE]/[DIR] 前缀的条目、大小及汇总。支持按名称或大小排序。',
+      'List the contents of the directory. Return entries with [FILE]/[DIR] prefix, size, and summary. Supports sorting by name or size.',
     parameters: ListDirectoryWithSizesArgsSchema,
     handler: async (args: z.infer<typeof ListDirectoryWithSizesArgsSchema>) => {
       const validPath = await validatePath(targetDir, args.path);
@@ -273,8 +275,8 @@ export const getFilesystemTools = (targetDir: string) => {
   const directoryTreeTool = createTool({
     name: 'directory_tree',
     description:
-      '获取目录的递归树状 JSON 结构。' +
-      '默认仅展示 2 层深度以节省 Token。如果需要看更深层级，请调大 depth 参数。',
+      'Get the recursive tree JSON structure of the directory.' +
+      'Default only shows 2 layers of depth to save tokens. If you need to see deeper levels, please increase the depth parameter.',
     parameters: DirectoryTreeArgsSchema,
     handler: async (args: z.infer<typeof DirectoryTreeArgsSchema>) => {
       // 在 directory_tree 的 handler 内部
@@ -328,7 +330,7 @@ export const getFilesystemTools = (targetDir: string) => {
   const moveFileTool = createTool({
     name: 'move_file',
     description:
-      '移动或重命名文件/目录。目标路径若已存在则失败。源与目标均须在允许目录内。',
+      'Move or rename a file/directory. If the target path already exists, it will fail. The source and target must be within the allowed directories.',
     parameters: MoveFileArgsSchema,
     handler: async (args: z.infer<typeof MoveFileArgsSchema>) => {
       const validSourcePath = await validatePath(targetDir, args.source);
@@ -342,7 +344,7 @@ export const getFilesystemTools = (targetDir: string) => {
   const searchFilesTool = createTool({
     name: 'search_files',
     description:
-      '在指定路径下搜索匹配模式的文件名。返回匹配的相对路径列表。',
+      'Search for file names matching a pattern in the specified path. Return a list of matching relative paths.',
     parameters: SearchFilesArgsSchema,
     handler: async (args: z.infer<typeof SearchFilesArgsSchema>) => {
       const combinedExcludes = [...DEFAULT_IGNORE, ...(args.excludePatterns || [])];
@@ -357,7 +359,7 @@ export const getFilesystemTools = (targetDir: string) => {
 
   const getFileInfoTool = createTool({
     name: 'get_file_info',
-    description: '查看文件元数据（大小、行数、修改时间）。读取大文件前务必先调用此工具。',
+    description: 'View file metadata (size, line count, modification time). Must call this tool before reading large files.',
     parameters: GetFileInfoArgsSchema,
     handler: async (args: z.infer<typeof GetFileInfoArgsSchema>) => {
       const validPath = await validatePath(targetDir, args.path);
@@ -384,9 +386,9 @@ export const getFilesystemTools = (targetDir: string) => {
   const grepSearchTool = createTool({
     name: 'grep_search',
     description:
-      '在指定目录的文件内容中搜索关键字。' +
-      '该工具会返回包含关键字的文件路径及匹配行的预览。' +
-      '请尽量通过 includePattern 缩小搜索范围。',
+      'Search for keywords in the content of files in the specified directory.' +
+      'This tool will return the file paths and preview of matching lines containing the keywords.' +
+      'Please narrow down the search scope as much as possible using includePattern.',
     parameters: GrepSearchArgsSchema,
     handler: async (args: z.infer<typeof GrepSearchArgsSchema>) => {
       const startPath = await validatePath(targetDir, args.path);
@@ -427,11 +429,11 @@ export const getFilesystemTools = (targetDir: string) => {
       }
 
       let response = matches.length > 0
-        ? `找到关键词 "${args.query}" 的位置如下：\n${matches.join('\n')}`
-        : `未找到包含 "${args.query}" 的内容。`;
+        ? `The location of the keyword "${args.query}" is as follows:\n${matches.join('\n')}`
+        : `The content containing "${args.query}" was not found.`;
 
       if (allFiles.length > args.maxFiles) {
-        response += `\n\n注意：搜索已达到限制，仅扫描了前 ${args.maxFiles} 个文件。若未找到结果，请提供更精确的 path 或 includePattern。`;
+        response += `\n\nNote: The search has reached the limit, only scanned the first ${args.maxFiles} files. If no results are found, please provide a more precise path or includePattern.`;
       }
       return response;
     },
@@ -440,11 +442,11 @@ export const getFilesystemTools = (targetDir: string) => {
   const readFileRangeTool = createTool({
     name: 'read_file_range',
     description:
-      '精准读取指定行范围（包含行号前缀）。修改代码前或根据报错定位时必用。',
+      'Precisely read the specified line range (includes line number prefix). Must use this tool before modifying code or locating errors based on error messages.',
     parameters: z.object({
-      path: z.string().describe('相对于目标目录的文件路径'),
-      startLine: z.number().describe('起始行号（从 1 开始计）'),
-      endLine: z.number().describe('结束行号'),
+      path: z.string().describe('The file path relative to the target directory'),
+      startLine: z.number().describe('The starting line number (starts from 1)'),
+      endLine: z.number().describe('The ending line number'),
     }),
     handler: async (args) => {
       // 1. 验证路径安全（沿用你代码中的 validatePath 逻辑）
@@ -460,10 +462,10 @@ export const getFilesystemTools = (targetDir: string) => {
         const end = Math.min(totalLines, args.endLine);
 
         if (start > totalLines) {
-          return `错误：文件仅有 ${totalLines} 行，起始行号 ${start} 超出范围。`;
+          return `Error: The file only has ${totalLines} lines, the starting line number ${start} is out of range.`;
         }
         if (start > end) {
-          return `错误：起始行号 ${start} 不能大于结束行号 ${end}。`;
+          return `Error: The starting line number ${start} cannot be greater than the ending line number ${end}.`;
         }
 
         // 3. 截取并添加行号索引（核心：增强 AI 的位置感）
@@ -472,9 +474,9 @@ export const getFilesystemTools = (targetDir: string) => {
           .map((line, index) => `${start + index}| ${line}`)
           .join('\n');
 
-        return `[文件: ${args.path} | 第 ${start} 至 ${end} 行 / 共 ${totalLines} 行]\n${formattedContent}`;
+        return `[File: ${args.path} | Lines ${start} to ${end} / Total ${totalLines} lines]\n${formattedContent}`;
       } catch (error: any) {
-        return `读取文件范围失败: ${error.message}`;
+        return `Failed to read the file range: ${error.message}`;
       }
     },
   });
@@ -483,7 +485,7 @@ export const getFilesystemTools = (targetDir: string) => {
   const editFileTool = createTool({
     name: 'edit_file',
     description:
-      '基于行号范围替换代码。修改逻辑的唯一工具。调用前须通过 read_file_range 获取最新行号。支持删除(空内容)或单行替换。',
+      'Replace code based on line number range. The only tool for modifying logic. Must call read_file_range to get the latest line number before calling. Supports deletion (empty content) or single line replacement.',
     parameters: PatchEditArgsSchema,
     handler: async (args: z.infer<typeof PatchEditArgsSchema>) => {
       const validPath = await validatePath(targetDir, args.path);
@@ -498,7 +500,7 @@ export const getFilesystemTools = (targetDir: string) => {
         for (const patch of sortedPatches) {
           // 校验行号合法性
           if (patch.startLine < 1 || patch.endLine > lines.length || patch.startLine > patch.endLine) {
-            return `错误：行号范围 ${patch.startLine}-${patch.endLine} 超出文件实际范围 (1-${lines.length})`;
+            return `Error: The line number range ${patch.startLine}-${patch.endLine} is out of the actual range of the file (1-${lines.length})`;
           }
 
           // 可选：二次校验（防止 AI 记忆了错误的行号）
@@ -506,7 +508,7 @@ export const getFilesystemTools = (targetDir: string) => {
             const currentText = lines.slice(patch.startLine - 1, patch.endLine).join('\n');
             // 模糊对比，如果差异太大则报错
             if (!currentText.includes(patch.originalSnippet.trim()) && currentText.trim().length > 0) {
-              return `警告：第 ${patch.startLine} 行的内容已发生变动，与你预想的代码不符。请重新读取文件获取最新行号。`;
+              return `Warning: The content of the ${patch.startLine} line has changed, which does not match your expected code. Please read the file again to get the latest line number.`;
             }
           }
 
@@ -516,9 +518,9 @@ export const getFilesystemTools = (targetDir: string) => {
         }
 
         await fs.writeFile(validPath, lines.join('\n'), 'utf-8');
-        return `成功通过行号更新了 ${args.path} 的 ${args.patches.length} 处代码。`;
+        return `Successfully updated ${args.path} with ${args.patches.length} code changes.`;
       } catch (error: any) {
-        return `Patch 失败: ${error.message}`;
+        return `Patch failed: ${error.message}`;
       }
     },
   });

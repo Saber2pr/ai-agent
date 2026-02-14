@@ -14,7 +14,7 @@ export interface CreateToolOptions {
 
 export function createTool(options: CreateToolOptions): ToolInfo {
   return {
-    type: "function",
+    type: 'function',
     function: {
       name: options.name,
       description: options.description,
@@ -27,7 +27,7 @@ export function createTool(options: CreateToolOptions): ToolInfo {
         try {
           args = JSON.parse(input);
         } catch {
-          args = input
+          args = input;
         }
       }
 

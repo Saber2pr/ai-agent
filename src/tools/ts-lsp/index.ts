@@ -10,18 +10,19 @@ export const getTsLspTools = (targetDir: string) => {
     createTool({
       name: 'get_method_body',
       description:
-        '【仅限TS/JS】通过方法名提取代码块。比行号读取更抗干扰，参考逻辑时首选。',
+        '[Only for TS/JS] Extract code blocks by method name. More resistant to interference than line number reading, preferred when referencing logic.',
       parameters: z.object({
-        filePath: z.string().describe('文件相对路径'),
-        methodName: z.string().describe('方法名或函数名'),
+        filePath: z.string().describe('The relative file path'),
+        methodName: z.string().describe('The method name or function name'),
       }),
       handler: async ({ filePath, methodName }) => {
-        return engine.getMethodImplementation(filePath, methodName);
+        const res = engine.getMethodImplementation(filePath, methodName);
+        return typeof res === 'string' ? res : JSON.stringify(res);
       },
     }),
     createTool({
       name: 'get_repo_map',
-      description: '获取项目全局文件结构及导出清单，用于快速定位代码',
+      description: 'Get the global file structure and export list of the project, used for quick code location',
       parameters: z.object({}),
       handler: async () => {
         engine.refresh();
@@ -30,25 +31,25 @@ export const getTsLspTools = (targetDir: string) => {
     }),
     createTool({
       name: 'analyze_deps',
-      description: '分析指定文件的依赖关系，支持 tsconfig 路径别名解析',
-      parameters: z.object({ filePath: z.string().describe('文件相对路径') }),
+      description: 'Analyze the dependencies of the specified file, support tsconfig path alias parsing',
+      parameters: z.object({ filePath: z.string().describe('The relative file path') }),
       handler: async ({ filePath }) => engine.getDeps(filePath),
     }),
     createTool({
       name: 'read_skeleton',
-      description: '提取文件的结构定义（接口、类、方法签名），忽略具体实现以节省 Token',
-      parameters: z.object({ filePath: z.string().describe('文件相对路径') }),
+      description: 'Extract the structure definition of the file (interface, class, method signature), ignoring the specific implementation to save tokens',
+      parameters: z.object({ filePath: z.string().describe('The relative file path') }),
       handler: async args => {
         const pathArg = args?.filePath;
         if (typeof pathArg !== 'string' || pathArg.trim() === '') {
-          return `Error: 参数 'filePath' 无效。收到的是: ${JSON.stringify(pathArg)}`;
+          return `Error: The parameter 'filePath' is invalid. Received: ${JSON.stringify(pathArg)}`;
         }
         try {
           engine.refresh();
           const result = engine.getSkeleton(pathArg);
-          return result || `// Warning: 文件 ${pathArg} 存在但未找到任何可提取的结构。`;
+          return result || `// Warning: The file ${pathArg} exists but no structure can be extracted.`;
         } catch (error: any) {
-          return `Error: 解析文件 ${pathArg} 时发生内部错误: ${error.message}`;
+          return `Error: An internal error occurred while parsing the file ${pathArg}: ${error.message}`;
         }
       },
     }),
