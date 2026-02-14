@@ -1,19 +1,16 @@
-import { AgentGraphLLMResponse, AgentGraphModel, StreamChunkCallback } from '../model/AgentGraphModel';
 import { BaseMessage } from '@langchain/core/messages';
+
+import {
+  AgentGraphLLMResponse, AgentGraphModel, StreamChunkCallback
+} from '../model/AgentGraphModel';
 import { CreateAgentOptions } from '../types/type';
 
 export class LLMModel extends AgentGraphModel {
-  private chatId: string;
   private options: CreateAgentOptions;
 
   constructor(options: CreateAgentOptions) {
     super();
-    this.chatId = '';
     this.options = options;
-  }
-
-  resetChat() {
-    this.chatId = '';
   }
 
   async callApi(prompt: string): Promise<AgentGraphLLMResponse> {
@@ -195,7 +192,7 @@ export class LLMModel extends AgentGraphModel {
       text: fullText,
       reasoning,
       token,
-      duration
+      duration,
     };
   }
 }

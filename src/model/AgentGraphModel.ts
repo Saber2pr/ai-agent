@@ -20,6 +20,11 @@ export abstract class AgentGraphModel extends BaseChatModel {
   protected boundTools?: any[];
   private mcpEnabled?: boolean = true
   private mcpTools?: any[] = []
+  protected chatId = '';
+
+  resetChat() {
+    this.chatId = '';
+  }
 
   setMcpTools(tools: any[]) {
     this.mcpTools = tools
@@ -42,6 +47,10 @@ export abstract class AgentGraphModel extends BaseChatModel {
 
   constructor(fields?: BaseChatModelParams) {
     super(fields || {});
+
+    this.chatId = '';
+    this.mcpTools = [];
+    this.mcpEnabled = true;
   }
 
   bindTools(tools: any[]): any {
@@ -202,6 +211,7 @@ export abstract class AgentGraphModel extends BaseChatModel {
   public serializeMessages(messages: BaseMessage[]): string {
     const systemMsg = messages.find(m => m._getType() === 'system');
     const lastMsg = messages[messages.length - 1];
+    const isFirstMessage = this.chatId === '';
 
     const format = (m: BaseMessage) => {
       const content =
@@ -214,9 +224,13 @@ export abstract class AgentGraphModel extends BaseChatModel {
       ? `${generateToolMarkdown(tools)}`
       : '';
 
-    return `
-${format(systemMsg as any)}
+    const systemContext = isFirstMessage ? `
+${isFirstMessage ? format(systemMsg as any) : ''}
 ${toolsContext}
+`.trim() : ''
+
+    return `
+${systemContext}
 # Current Progress
 ${format(lastMsg)}
 # Output Requirement
