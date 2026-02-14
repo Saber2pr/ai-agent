@@ -1,6 +1,6 @@
 import { AgentGraphLLMResponse, AgentGraphModel, StreamChunkCallback } from '../model/AgentGraphModel';
 import { BaseMessage } from '@langchain/core/messages';
-import { CreateAgentOptions } from '../agent/createAgent';
+import { CreateAgentOptions } from '../types/type';
 
 export class LLMModel extends AgentGraphModel {
   private chatId: string;

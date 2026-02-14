@@ -1,15 +1,6 @@
-import McpGraphAgent from '../core/agent-graph';
-import { GraphAgentOptions } from '../types/type';
 import { LLMModel } from '../adapters/llm';
-
-export interface CreateAgentOptions {
-  apiKey: string;
-  apiUrl: string;
-  targetDir?: string;
-  /** 是否启用流式输出，默认 false */
-  stream?: boolean;
-  config?: GraphAgentOptions;
-}
+import McpGraphAgent from '../core/agent-graph';
+import { CreateAgentOptions } from '../types/type';
 
 export const createAgent = (options: CreateAgentOptions): McpGraphAgent<LLMModel> => {
   const agent = new McpGraphAgent<LLMModel>({

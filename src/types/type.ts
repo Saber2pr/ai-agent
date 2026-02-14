@@ -49,3 +49,12 @@ export interface GraphAgentOptions<T extends AgentGraphModel = any> extends Agen
   /** 是否启用流式输出，默认 false */
   stream?: boolean;
 }
+
+export interface CreateAgentOptions {
+  apiKey: string;
+  apiUrl: string;
+  targetDir?: string;
+  /** 是否启用流式输出，默认 false */
+  stream?: boolean;
+  config?: GraphAgentOptions;
+}
