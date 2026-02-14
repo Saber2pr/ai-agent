@@ -1,15 +1,35 @@
 import { PromptEngine } from "@saber2pr/ts-context-mcp";
 
 let lastRepoMapContent = '';
+const MAX_LINES = 50; // 设定阈值
 
 export const getIncrementalRepoMapPrompt = (targetDir: string, isFirstTurn: boolean) => {
   try {
+
     const engine = new PromptEngine(targetDir);
     const currentContent = engine.getRepoMap();
+    const lines = currentContent.split('\n');
 
     // 1. 第一轮对话：必须全量发送
     if (isFirstTurn || !lastRepoMapContent) {
       lastRepoMapContent = currentContent;
+
+      // 如果超过 50 行，进行截断
+      if (lines.length > MAX_LINES) {
+        const truncatedContent = lines.slice(0, MAX_LINES).join('\n');
+        return `
+# Initial Project Repository Map (Truncated)
+\`\`\`text
+${truncatedContent}
+...
+[${lines.length - MAX_LINES} more lines truncated for brevity]
+\`\`\`
+
+**Note**: The map above only shows the core structure. 
+- If the file you need is not listed, use the tool \`list_directory\` to explore.
+`.trim();
+      }
+
       return `\n# Initial Project Repository Map\n\`\`\`text\n${currentContent}\n\`\`\``;
     }
 
