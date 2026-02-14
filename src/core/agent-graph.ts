@@ -678,6 +678,17 @@ ${getSystemPromptTemplate(this.targetDir)}
     const workflow = new StateGraph(AgentState)
       .addNode('agent', state => this.callModel(state))
       .addNode('tools', this.toolNode)
+      .addNode('interrupt', state => {
+        return {
+          messages: [new AIMessage({
+            content: `Final Answer:\n💡 **嘿，我们已经聊了很多了！**
+
+为了保证服务质量，我通常会在 50 步操作后停下来和您确认一下。这样可以避免我产生“幻觉”或者做一些无用功。
+
+**任务还没完成吗？** 没关系，只要您回复“继续”，我马上就回来接着干！或者您有什么新的想法要告诉我？`
+          })]
+        };
+      })
       .addEdge(START, 'agent')
       .addConditionalEdges('agent', state => {
         const { messages } = state;
@@ -709,14 +720,7 @@ ${getSystemPromptTemplate(this.targetDir)}
         }
 
         if (messages.length > 50) {
-          state.messages.push(new AIMessage({
-            content: `💡 **嘿，我们已经聊了很多了！**
-
-为了保证服务质量，我通常会在 50 步操作后停下来和您确认一下。这样可以避免我产生“幻觉”或者做一些无用功。
-
-**任务还没完成吗？** 没关系，只要您回复“继续”，我马上就回来接着干！或者您有什么新的想法要告诉我？`
-          }));
-          return END;
+          return 'interrupt';
         }
 
         return END;
