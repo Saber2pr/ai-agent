@@ -30,7 +30,7 @@
     "@saber2pr/ts-context-mcp": "^0.0.10",
     "diff": "^8.0.3",
     "glob": "^10.5.0",
-    "minimatch": "^10.0.1",
+    "minimatch": "9.0.5",
     "openai": "^6.16.0",
     "typescript": "^5.9.3",
     "zod": "3.25",
@@ -39,7 +39,8 @@
   },
   "resolutions": {
     "zod": "3.25",
-    "@langchain/core": "0.3.40"
+    "@langchain/core": "0.3.40",
+    "minimatch": "9.0.5"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
