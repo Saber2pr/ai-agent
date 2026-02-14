@@ -1,16 +1,19 @@
 {
+  "compileOnSave": false,
   "compilerOptions": {
-    "target": "ES2019",
-    "module": "commonjs",
+    "target": "ESNext",
+    "module": "CommonJS",
+    "lib": ["ESNext"],
     "declaration": true,
-    "outDir": "./lib",
+    "declarationMap": false,
+    "emitDeclarationOnly": false,
+    "moduleResolution": "node",
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "moduleResolution": "node",
-    "downlevelIteration": true,
-    "experimentalDecorators": true,
-    "lib": ["ESNext"]
+    "outDir": "./lib",
+    "resolveJsonModule": true,
+    "noEmitOnError": false
   },
-  "include": ["src"],
-  "exclude": ["node_modules", "lib"]
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "lib", "typings", "**/__test__"]
 }
