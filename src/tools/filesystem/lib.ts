@@ -389,7 +389,10 @@ export async function searchFilesWithValidation(
         if (shouldExclude) continue;
 
         // Use glob matching for the search pattern
-        if (minimatch(relativePath, pattern, { dot: true })) {
+        if (
+          minimatch(relativePath, pattern, { dot: true }) ||
+          path.basename(fullPath) === pattern // 新增：如果文件名完全一致也算匹配
+        ) {
           results.push(fullPath);
         }
 
@@ -408,7 +411,7 @@ export async function searchFilesWithValidation(
 
 export const isBinaryOrIrrelevant = (filePath: string): boolean => {
   const ext = path.extname(filePath).toLowerCase();
-  
+
   // 1. 常见的二进制媒体/资源格式
   const binaryExtensions = new Set([
     // 图片
