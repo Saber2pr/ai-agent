@@ -1,8 +1,8 @@
-import { z } from 'zod';
+import { z } from "zod";
 
-import { Client } from '@modelcontextprotocol/sdk/client/index';
+import { Client } from "@modelcontextprotocol/sdk/client/index";
 
-import { AgentGraphModel } from '../model/AgentGraphModel';
+import { AgentGraphModel } from "../model/AgentGraphModel";
 
 // --- 类型定义 ---
 export interface ApiConfig {
@@ -12,7 +12,7 @@ export interface ApiConfig {
 }
 
 export interface ToolInfo {
-  type: 'function';
+  type: "function";
   function: {
     name: string;
     description?: string;
@@ -42,12 +42,14 @@ export interface AgentOptions {
   apiConfig?: ApiConfig;
 }
 
-export interface GraphAgentOptions<T extends AgentGraphModel = any> extends AgentOptions {
+export interface GraphAgentOptions<T extends AgentGraphModel = any>
+  extends AgentOptions {
   apiModel?: T;
   alwaysSystem?: boolean;
   recursionLimit?: number;
   /** 是否启用流式输出，默认 false */
   stream?: boolean;
+  filterTools?: (tool: ToolInfo) => boolean;
 }
 
 export interface CreateAgentOptions {

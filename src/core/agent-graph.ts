@@ -224,11 +224,15 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
     const mcpToolInfos = await this.initMcpTools();
 
     // 合并内置、手动传入和 MCP 工具
-    const allToolInfos = [
+    let allToolInfos = [
       ...builtinToolInfos,
       ...(this.options.tools || []),
       ...mcpToolInfos,
     ];
+
+    if (this.options.filterTools) {
+      allToolInfos = allToolInfos.filter(this.options.filterTools);
+    }
 
     this.langchainTools = allToolInfos.map((t) =>
       convertToLangChainTool(t, { allTools: allToolInfos }),
