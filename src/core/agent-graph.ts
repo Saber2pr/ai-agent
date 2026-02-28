@@ -235,7 +235,10 @@ export default class McpGraphAgent<T extends AgentGraphModel = any> {
     }
 
     this.langchainTools = allToolInfos.map((t) =>
-      convertToLangChainTool(t, { allTools: allToolInfos }),
+      convertToLangChainTool(t, {
+        allTools: allToolInfos,
+        agentOptions: this.options,
+      }),
     );
     this.toolNode = new ToolNode(this.langchainTools);
 

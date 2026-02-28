@@ -18,7 +18,10 @@ export interface ToolInfo {
     description?: string;
     parameters: z.ZodObject<any>;
   };
-  _handler?: (args: any, context: { allTools: ToolInfo[] }) => Promise<any>; // 内置工具处理器
+  _handler?: (
+    args: any,
+    context: { allTools: ToolInfo[]; agentOptions?: GraphAgentOptions },
+  ) => Promise<any>; // 内置工具处理器
   _client?: Client; // 外部 MCP 客户端
   _originalName?: string;
 }

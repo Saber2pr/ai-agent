@@ -1,8 +1,8 @@
 import { DynamicStructuredTool } from '@langchain/core/tools';
 
-import { ToolInfo } from '../types/type';
+import { GraphAgentOptions, ToolInfo } from '../types/type';
 
-export function convertToLangChainTool(info: ToolInfo, context: { allTools: ToolInfo[] }) {
+export function convertToLangChainTool(info: ToolInfo, context: { allTools: ToolInfo[], agentOptions: GraphAgentOptions }) {
   return new DynamicStructuredTool({
     name: info.function.name,
     description: info.function.description || '',
