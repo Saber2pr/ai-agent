@@ -123,38 +123,37 @@ export abstract class AgentGraphModel extends BaseChatModel {
 
   private parseToolCalls(text: string) {
     const actionMatch = text.match(/Action:\s*(\w+)/);
-    const argsMatch = text.match(/Arguments:\s*({[\s\S]*?})(?=\n|$)/);
-
     if (!actionMatch) return [];
 
     let args: any = {};
-    if (argsMatch) {
-      try {
-        let raw = argsMatch[1].trim();
-
-        // ✅ 关键修复：递归解析，直到它变成真正的对象
-        // 这能处理 "\"{\\\"path\\\":...}\"" 这种套娃字符串
-        let safetyDepth = 0;
-        while (typeof raw === 'string' && safetyDepth < 5) {
-          try {
-            const parsed = JSON.parse(raw);
-            if (typeof parsed === 'object' && parsed !== null) {
+    const argsIdx = text.search(/Arguments:\s*\{/);
+    if (argsIdx !== -1) {
+      const jsonStart = text.indexOf('{', argsIdx);
+      const jsonStr = this.extractBalancedJson(text, jsonStart);
+      if (jsonStr) {
+        try {
+          let raw: any = jsonStr;
+          let safetyDepth = 0;
+          while (typeof raw === 'string' && safetyDepth < 5) {
+            try {
+              const parsed = JSON.parse(raw);
+              if (typeof parsed === 'object' && parsed !== null) {
+                raw = parsed;
+                break;
+              }
               raw = parsed;
+            } catch {
               break;
             }
-            raw = parsed; // 如果解析后还是 string，继续剥
-          } catch {
-            break; // 解析不动了，跳出
+            safetyDepth++;
           }
-          safetyDepth++;
+          args = raw;
+        } catch {
+          args = {};
         }
-        args = raw;
-      } catch (e) {
-        args = {};
       }
     }
 
-    // ✅ 此时返回的 args 必须是 object 类型
     return [
       {
         name: actionMatch[1],
@@ -163,6 +162,41 @@ export abstract class AgentGraphModel extends BaseChatModel {
         type: 'tool_call' as const,
       },
     ];
+  }
+
+  /** 从 text[start] 开始，按括号配对提取完整的 JSON 对象字符串 */
+  private extractBalancedJson(text: string, start: number): string | null {
+    if (start < 0 || start >= text.length || text[start] !== '{') return null;
+
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+
+    for (let i = start; i < text.length; i++) {
+      const ch = text[i];
+
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch === '\\' && inString) {
+        escape = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) return text.substring(start, i + 1);
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -250,8 +284,8 @@ ${systemContext}
 ${format(lastMsg)}
 # Output Requirement
 1. Reasoning in <think> tags.
-2. Action: Name
-3. Arguments: {JSON}
+2. Action: ToolName
+3. Arguments: {"key": "value"} (MUST be a single-line compact JSON, no newlines inside)
 `.trim();
   }
 
